@@ -1,0 +1,90 @@
+# Environment variables - NEVER commit these
+.env
+.env.local
+.env.*.local
+
+# Apple Push Notification keys
+*.p8
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Xcode
+ios/build/
+ios/DerivedData/
+ios/*.pbxuser
+!default.pbxuser
+ios/*.mode1v3
+!default.mode1v3
+ios/*.mode2v3
+!default.mode2v3
+ios/*.perspectivev3
+!default.perspectivev3
+ios/xcuserdata/
+ios/*.xccheckout
+ios/*.moved-aside
+ios/*.xcuserstate
+ios/*.xcscmblueprint
+ios/*.xcworkspace
+!ios/*.xcworkspace/contents.xcworkspacedata
+ios/**/xcshareddata/
+ios/*.hmap
+ios/*.ipa
+ios/*.dSYM.zip
+ios/*.dSYM
+
+# Swift Package Manager
+ios/.build/
+ios/Packages/
+ios/Package.resolved
+
+# CocoaPods (if used)
+ios/Pods/
+ios/Podfile.lock
+
+# Carthage (if used)
+ios/Carthage/Build/
+
+# Node modules (for Supabase functions development)
+node_modules/
+supabase/functions/node_modules/
+
+# Supabase
+supabase/.branches
+supabase/.temp
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Testing
+coverage/
+*.lcov
+
+# Build outputs
+dist/
+build/
+*.ipa
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Secrets and credentials
+secrets/
+credentials/
+*.pem
+*.key

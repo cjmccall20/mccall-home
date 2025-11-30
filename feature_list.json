@@ -1,0 +1,693 @@
+{
+  "project": "McCall Home",
+  "version": "1.0.0",
+  "created": "2024-01-01",
+  "last_updated": "2024-01-01",
+  "features": [
+    {
+      "id": "setup-001",
+      "category": "setup",
+      "description": "Xcode project created with correct bundle ID (com.mccall.home)",
+      "steps": [
+        "Create new Xcode project",
+        "Set bundle identifier to com.mccall.home",
+        "Configure for iOS 17+",
+        "Verify project builds without errors"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "setup-002",
+      "category": "setup",
+      "description": "Supabase Swift SDK integrated and configured",
+      "steps": [
+        "Add Supabase package via SPM",
+        "Create SupabaseClient singleton",
+        "Verify connection to Supabase project",
+        "Test basic query works"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "setup-003",
+      "category": "setup",
+      "description": "SwiftData configured for offline persistence",
+      "steps": [
+        "Create SwiftData models",
+        "Configure ModelContainer",
+        "Verify data persists across app restarts"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "auth-001",
+      "category": "authentication",
+      "description": "User can sign up with email and password",
+      "steps": [
+        "Navigate to signup screen",
+        "Enter email and password",
+        "Tap signup button",
+        "Verify account created in Supabase",
+        "Verify user redirected to main app"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "auth-002",
+      "category": "authentication",
+      "description": "User can log in with existing credentials",
+      "steps": [
+        "Navigate to login screen",
+        "Enter valid credentials",
+        "Tap login button",
+        "Verify user authenticated",
+        "Verify redirected to main app"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "auth-003",
+      "category": "authentication",
+      "description": "Session persists across app restarts",
+      "steps": [
+        "Log in successfully",
+        "Force quit app",
+        "Reopen app",
+        "Verify user still logged in (no login screen)"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "auth-004",
+      "category": "authentication",
+      "description": "User can log out",
+      "steps": [
+        "Navigate to settings",
+        "Tap logout",
+        "Verify returned to login screen",
+        "Verify session cleared"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "auth-005",
+      "category": "authentication",
+      "description": "Household created on first signup with spouse invite",
+      "steps": [
+        "First user signs up",
+        "Household automatically created",
+        "User can enter spouse email to invite",
+        "Spouse receives invite and can join household"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "honeydew-001",
+      "category": "tasks",
+      "description": "User can create a task with title",
+      "steps": [
+        "Navigate to Honeydew tab",
+        "Tap add button",
+        "Enter task title",
+        "Tap save",
+        "Verify task appears in list"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "honeydew-002",
+      "category": "tasks",
+      "description": "User can set task due date and time",
+      "steps": [
+        "Create or edit task",
+        "Tap due date field",
+        "Select date from picker",
+        "Optionally select time",
+        "Save and verify date displayed"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "honeydew-003",
+      "category": "tasks",
+      "description": "User can set task priority (low/medium/high/urgent)",
+      "steps": [
+        "Create or edit task",
+        "Select priority level",
+        "Save task",
+        "Verify priority indicator shown in list"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "honeydew-004",
+      "category": "tasks",
+      "description": "User can assign task to self or spouse",
+      "steps": [
+        "Create or edit task",
+        "Tap assignee field",
+        "Select from household members",
+        "Save task",
+        "Verify assignee shown on task"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "honeydew-005",
+      "category": "tasks",
+      "description": "Checkbox marks task as complete with timestamp",
+      "steps": [
+        "View task in list",
+        "Tap checkbox",
+        "Task visually marked complete",
+        "Completed_at timestamp saved to database"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "honeydew-006",
+      "category": "tasks",
+      "description": "Completing task sends push notification to spouse",
+      "steps": [
+        "Spouse has app installed with notifications enabled",
+        "User marks task complete",
+        "Spouse receives push notification",
+        "Notification shows task title and who completed it"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "honeydew-007",
+      "category": "tasks",
+      "description": "Task list filters to show only pending tasks by default",
+      "steps": [
+        "Create several tasks, complete some",
+        "View Honeydew tab",
+        "Only incomplete tasks shown by default",
+        "Can toggle to show all or completed"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "honeydew-008",
+      "category": "tasks",
+      "description": "History view shows completed tasks grouped by day",
+      "steps": [
+        "Complete tasks on different days",
+        "Navigate to History view",
+        "Tasks grouped under date headers",
+        "Can scroll through past days"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "honeydew-009",
+      "category": "tasks",
+      "description": "User can delete a task",
+      "steps": [
+        "Swipe task in list",
+        "Tap delete",
+        "Confirm deletion",
+        "Task removed from list and database"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "honeydew-010",
+      "category": "tasks",
+      "description": "Configurable notification times for outstanding tasks digest",
+      "steps": [
+        "Navigate to Settings",
+        "Set notification times (e.g., 7am, 6pm)",
+        "Save settings",
+        "Receive push notification at configured times with outstanding task count"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "recipe-001",
+      "category": "recipes",
+      "description": "User can add recipe manually with all fields",
+      "steps": [
+        "Navigate to Recipes tab",
+        "Tap add button",
+        "Enter title, servings, ingredients, steps",
+        "Add optional tags",
+        "Save recipe",
+        "Verify appears in recipe list"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "recipe-002",
+      "category": "recipes",
+      "description": "Ingredients can be added with name, quantity, unit",
+      "steps": [
+        "In add/edit recipe screen",
+        "Tap add ingredient",
+        "Enter name, quantity, unit",
+        "Ingredient appears in list",
+        "Can edit or delete ingredients"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "recipe-003",
+      "category": "recipes",
+      "description": "Steps can be added and reordered",
+      "steps": [
+        "In add/edit recipe screen",
+        "Add multiple steps",
+        "Drag to reorder",
+        "Step numbers update automatically"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "recipe-004",
+      "category": "recipes",
+      "description": "User can paste URL and recipe is scraped automatically",
+      "steps": [
+        "Tap add recipe",
+        "Select 'Import from URL'",
+        "Paste recipe URL",
+        "Tap import",
+        "Recipe fields populated automatically",
+        "User can edit before saving"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "recipe-005",
+      "category": "recipes",
+      "description": "Blocked URL shows fallback to paste text",
+      "steps": [
+        "Paste URL that blocks scraping",
+        "Error message displayed",
+        "Option to paste recipe text instead",
+        "Text parsed into structured format"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "recipe-006",
+      "category": "recipes",
+      "description": "Recipe detail view shows all information clearly",
+      "steps": [
+        "Tap recipe in list",
+        "See title, servings, prep/cook time",
+        "See ingredients list",
+        "See numbered steps",
+        "See tags if any"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "recipe-007",
+      "category": "recipes",
+      "description": "Serving size adjuster scales ingredient quantities",
+      "steps": [
+        "View recipe detail",
+        "Adjust serving size slider/stepper",
+        "Ingredient quantities update proportionally",
+        "Original recipe unchanged in database"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "recipe-008",
+      "category": "recipes",
+      "description": "Recipes searchable by title",
+      "steps": [
+        "Have multiple recipes saved",
+        "Use search bar",
+        "Type partial title",
+        "Matching recipes filter in real-time"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "recipe-009",
+      "category": "recipes",
+      "description": "Recipes filterable by tags",
+      "steps": [
+        "Have recipes with different tags",
+        "Tap filter button",
+        "Select tag(s)",
+        "Only matching recipes shown"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "recipe-010",
+      "category": "recipes",
+      "description": "User can delete a recipe",
+      "steps": [
+        "Swipe recipe in list or tap delete in detail",
+        "Confirm deletion",
+        "Recipe removed from list and database",
+        "Associated meal plan entries handled"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "meal-001",
+      "category": "mealplan",
+      "description": "Weekly view shows Mon-Sun dinner slots",
+      "steps": [
+        "Navigate to Meal Plan tab",
+        "See current week displayed",
+        "Seven slots visible (Mon-Sun)",
+        "Each slot shows date"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "meal-002",
+      "category": "mealplan",
+      "description": "User can navigate between weeks",
+      "steps": [
+        "View meal plan",
+        "Tap next/previous week arrows",
+        "Week display updates",
+        "Any planned meals for that week shown"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "meal-003",
+      "category": "mealplan",
+      "description": "User can assign recipe to a day",
+      "steps": [
+        "Tap empty day slot",
+        "Recipe picker sheet appears",
+        "Select recipe",
+        "Recipe name appears on that day"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "meal-004",
+      "category": "mealplan",
+      "description": "User can set custom serving count for a meal",
+      "steps": [
+        "Tap assigned meal",
+        "Adjust serving count",
+        "Serving count saved",
+        "Affects grocery list generation"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "meal-005",
+      "category": "mealplan",
+      "description": "User can remove recipe from a day",
+      "steps": [
+        "Tap assigned meal",
+        "Tap remove/clear",
+        "Day slot becomes empty",
+        "Database updated"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "meal-006",
+      "category": "mealplan",
+      "description": "Saturday notification if next week meals incomplete",
+      "steps": [
+        "It's Saturday",
+        "Next week has < 7 meals planned",
+        "Push notification sent reminding to plan meals",
+        "Tapping notification opens meal plan"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "grocery-001",
+      "category": "grocery",
+      "description": "Grocery list generates from meal plan",
+      "steps": [
+        "All 7 days have meals planned",
+        "Tap 'Generate Grocery List'",
+        "List created from all recipe ingredients",
+        "Navigate to Grocery tab to view"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "grocery-002",
+      "category": "grocery",
+      "description": "Ingredients consolidated across recipes",
+      "steps": [
+        "Two recipes both need chicken",
+        "Generate grocery list",
+        "Chicken appears once with combined quantity"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "grocery-003",
+      "category": "grocery",
+      "description": "Verify Pantry section shows staples",
+      "steps": [
+        "Generate grocery list",
+        "See 'Verify Pantry' section at top",
+        "Contains items like salt, pepper, oil",
+        "User can check/uncheck each"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "grocery-004",
+      "category": "grocery",
+      "description": "Items sorted into category sections",
+      "steps": [
+        "View grocery list",
+        "Items grouped by: Produce, Dairy, Meat, Pantry, Frozen, Other",
+        "Each section collapsible"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "grocery-005",
+      "category": "grocery",
+      "description": "Items can be checked off",
+      "steps": [
+        "Tap checkbox on item",
+        "Item visually marked complete",
+        "Checked items move to bottom or strikethrough"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "grocery-006",
+      "category": "grocery",
+      "description": "Checkbox states persist",
+      "steps": [
+        "Check off several items",
+        "Close app completely",
+        "Reopen app",
+        "Checked items still checked"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "grocery-007",
+      "category": "grocery",
+      "description": "Banner shows if meal plan changed after list generated",
+      "steps": [
+        "Generate grocery list",
+        "Go back and change a meal",
+        "Return to grocery list",
+        "Banner displays 'Meal plan changed - Regenerate?'",
+        "Tap to regenerate"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "grocery-008",
+      "category": "grocery",
+      "description": "User can manually add items to grocery list",
+      "steps": [
+        "View grocery list",
+        "Tap add button",
+        "Enter item name and optional quantity",
+        "Item added to 'Other' section"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "offline-001",
+      "category": "offline",
+      "description": "Recipes viewable without internet",
+      "steps": [
+        "Load app with internet, view recipes",
+        "Enable airplane mode",
+        "Navigate to recipes",
+        "All recipes still viewable"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "offline-002",
+      "category": "offline",
+      "description": "Grocery list viewable without internet",
+      "steps": [
+        "Generate grocery list with internet",
+        "Enable airplane mode",
+        "View grocery list",
+        "All items visible and checkable"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "offline-003",
+      "category": "offline",
+      "description": "Tasks viewable without internet",
+      "steps": [
+        "Load tasks with internet",
+        "Enable airplane mode",
+        "View Honeydew list",
+        "Tasks still visible"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "offline-004",
+      "category": "offline",
+      "description": "Changes sync when back online",
+      "steps": [
+        "Enable airplane mode",
+        "Make changes (check items, complete tasks)",
+        "Disable airplane mode",
+        "Changes sync to Supabase",
+        "Verify on another device or Supabase dashboard"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "ui-001",
+      "category": "ui",
+      "description": "Tab bar navigation works correctly",
+      "steps": [
+        "App has bottom tab bar",
+        "Tabs: Calendar, Honeydew, Recipes, Meal Plan, Grocery",
+        "Tapping each shows correct view",
+        "Current tab highlighted"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "ui-002",
+      "category": "ui",
+      "description": "Dark mode supported",
+      "steps": [
+        "Switch iPhone to dark mode",
+        "Open app",
+        "All screens display correctly",
+        "Text readable, colors appropriate"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "ui-003",
+      "category": "ui",
+      "description": "Pull to refresh on list views",
+      "steps": [
+        "View any list (tasks, recipes, grocery)",
+        "Pull down",
+        "Loading indicator shows",
+        "Data refreshes from server"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "ui-004",
+      "category": "ui",
+      "description": "iPad layout works with wider display",
+      "steps": [
+        "Run app on iPad or simulator",
+        "Layout adapts to wider screen",
+        "No broken layouts or wasted space"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "settings-001",
+      "category": "settings",
+      "description": "Settings screen accessible",
+      "steps": [
+        "Tap settings icon/button",
+        "Settings screen opens",
+        "Account info visible",
+        "Notification settings visible"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "settings-002",
+      "category": "settings",
+      "description": "User can manage pantry staples list",
+      "steps": [
+        "Navigate to Settings",
+        "Find pantry staples section",
+        "Add new staple",
+        "Remove existing staple",
+        "Changes reflected in next grocery list"
+      ],
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}
