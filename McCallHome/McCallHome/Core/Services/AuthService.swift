@@ -27,7 +27,7 @@ class AuthService: ObservableObject {
 
         let userId = authResponse.user.id
 
-        // Get or create household (for now, join the McCall Family household)
+        // Get existing household or create a new one
         let households: [Household] = try await supabase
             .from("households")
             .select()
@@ -35,8 +35,21 @@ class AuthService: ObservableObject {
             .execute()
             .value
 
-        guard let household = households.first else {
-            throw AuthError.noHouseholdFound
+        let household: Household
+        if let existingHousehold = households.first {
+            household = existingHousehold
+        } else {
+            // Create new household for first user
+            let newHousehold = Household(
+                id: UUID(),
+                name: "\(name)'s Family",
+                createdAt: Date()
+            )
+            try await supabase
+                .from("households")
+                .insert(newHousehold)
+                .execute()
+            household = newHousehold
         }
 
         // Create user profile
