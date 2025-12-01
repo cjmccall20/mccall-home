@@ -8,7 +8,8 @@ McCallHome is a family household management iOS app built with SwiftUI and Supab
 
 ```
 McCallHome/
-├── McCallHomeApp.swift          # App entry point
+├── McCallHomeApp.swift          # App entry point with auth flow
+├── MainTabView.swift            # Main tab navigation
 ├── Config.swift                 # Configuration (Supabase URL, keys)
 ├── SupabaseClient.swift         # Supabase client singleton
 ├── Core/
@@ -98,6 +99,36 @@ McCallHome/
 - ViewModels use `@Published` for UI state
 - Error handling with do/catch blocks
 
+## Features
+
+### Honeydew (Tasks)
+- Task list with filters (All, Mine, To Do, Done)
+- Create/edit/delete tasks
+- Priority levels with color indicators
+- Due date tracking
+
+### Recipes
+- Searchable recipe library
+- Multi-step recipe creation (basics, ingredients, steps)
+- Serving adjuster that scales ingredient quantities
+- Tags and time estimates
+
+### Meal Plan
+- Weekly calendar view with navigation
+- Assign recipes to days
+- Remove planned meals
+
+### Grocery
+- Generate list from meal plan
+- Items grouped by category
+- Progress tracking
+- Manual item addition
+
+### Settings
+- User profile view
+- Pantry staples management
+- Sign out
+
 ## Supabase Tables
 
 | Table | Description |
@@ -120,15 +151,15 @@ McCallHome/
 ## Build Phases
 
 - [x] Phase 0: Initialization
-- [ ] Phase 1: Data Models
-- [ ] Phase 2: Services
-- [ ] Phase 3: Auth Feature
-- [ ] Phase 4: App Shell
-- [ ] Phase 5: Honeydew Feature
-- [ ] Phase 6: Recipes Feature
-- [ ] Phase 7: Meal Plan Feature
-- [ ] Phase 8: Grocery Feature
-- [ ] Phase 9: Settings Feature
-- [ ] Phase 10: Shared Components
-- [ ] Phase 11: Integration & Polish
-- [ ] Phase 12: Final Verification
+- [x] Phase 1: Data Models
+- [x] Phase 2: Services
+- [x] Phase 3: Auth Feature
+- [x] Phase 4: App Shell
+- [x] Phase 5: Honeydew Feature
+- [x] Phase 6: Recipes Feature
+- [x] Phase 7: Meal Plan Feature
+- [x] Phase 8: Grocery Feature
+- [x] Phase 9: Settings Feature
+- [x] Phase 10: Shared Components
+- [x] Phase 11: Integration & Polish
+- [x] Phase 12: Final Verification
