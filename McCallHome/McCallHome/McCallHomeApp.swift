@@ -6,12 +6,26 @@
 //
 
 import SwiftUI
+import Supabase
 
 @main
 struct McCallHomeApp: App {
+    @StateObject private var authViewModel = AuthViewModel()
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            Group {
+                if authViewModel.isAuthenticated {
+                    MainTabView()
+                        .environmentObject(authViewModel)
+                } else {
+                    AuthContainerView()
+                        .environmentObject(authViewModel)
+                }
+            }
+            .task {
+                await authViewModel.checkSession()
+            }
         }
     }
 }
