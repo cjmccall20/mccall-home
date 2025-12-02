@@ -83,8 +83,25 @@ class AuthViewModel: ObservableObject {
         }
     }
 
+    func deleteAccount() async {
+        isLoading = true
+        error = nil
+
+        do {
+            try await authService.deleteAccount()
+        } catch {
+            self.error = error.localizedDescription
+        }
+
+        isLoading = false
+    }
+
     func checkSession() async {
-        await authService.checkSession()
+        if Config.skipAuthForDevelopment {
+            await authService.setupDevMode()
+        } else {
+            await authService.checkSession()
+        }
     }
 
     private func clearFields() {

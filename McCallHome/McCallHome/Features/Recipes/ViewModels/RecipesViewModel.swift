@@ -14,18 +14,37 @@ class RecipesViewModel: ObservableObject {
     @Published var searchText = ""
     @Published var isLoading = false
     @Published var error: String?
+    @Published var selectedProteinFilter: Recipe.ProteinType?
+
+    // Scraper state
+    @Published var isScraping = false
+    @Published var scrapedRecipe: RecipeService.ScrapedRecipeData?
+    @Published var scraperError: String?
 
     private let recipeService = RecipeService.shared
     private let authService = AuthService.shared
 
     var filteredRecipes: [Recipe] {
-        if searchText.isEmpty {
-            return recipes
+        var result = recipes
+
+        // Filter by search text
+        if !searchText.isEmpty {
+            result = result.filter { recipe in
+                recipe.title.localizedCaseInsensitiveContains(searchText) ||
+                (recipe.tags?.contains { $0.localizedCaseInsensitiveContains(searchText) } ?? false)
+            }
         }
-        return recipes.filter { recipe in
-            recipe.title.localizedCaseInsensitiveContains(searchText) ||
-            (recipe.tags?.contains { $0.localizedCaseInsensitiveContains(searchText) } ?? false)
+
+        // Filter by protein type
+        if let proteinFilter = selectedProteinFilter {
+            result = result.filter { $0.proteinType == proteinFilter }
         }
+
+        return result
+    }
+
+    var groupedByProtein: [(protein: Recipe.ProteinType, recipes: [Recipe])] {
+        recipeService.groupedByProtein(filteredRecipes)
     }
 
     var householdId: UUID? {
@@ -72,5 +91,54 @@ class RecipesViewModel: ObservableObject {
         } catch {
             self.error = error.localizedDescription
         }
+    }
+
+    // MARK: - URL Scraping
+
+    func scrapeRecipe(from url: String) async {
+        isScraping = true
+        scrapedRecipe = nil
+        scraperError = nil
+
+        do {
+            scrapedRecipe = try await recipeService.scrapeRecipe(from: url)
+        } catch {
+            scraperError = error.localizedDescription
+        }
+
+        isScraping = false
+    }
+
+    func createRecipeFromScraped(dishCategory: Recipe.DishCategory? = nil, proteinType: Recipe.ProteinType? = nil) async -> Recipe? {
+        guard let scraped = scrapedRecipe,
+              let householdId = householdId else { return nil }
+
+        let recipe = recipeService.createRecipeFromScraped(scraped, householdId: householdId, dishCategoryOverride: dishCategory, proteinTypeOverride: proteinType)
+
+        do {
+            try await recipeService.createRecipe(recipe)
+            await fetchRecipes()
+            clearScrapedRecipe()
+            return recipe
+        } catch {
+            self.error = error.localizedDescription
+            return nil
+        }
+    }
+
+    func clearScrapedRecipe() {
+        scrapedRecipe = nil
+        scraperError = nil
+    }
+
+    // MARK: - Filtering
+
+    func setProteinFilter(_ protein: Recipe.ProteinType?) {
+        selectedProteinFilter = protein
+    }
+
+    func clearFilters() {
+        selectedProteinFilter = nil
+        searchText = ""
     }
 }

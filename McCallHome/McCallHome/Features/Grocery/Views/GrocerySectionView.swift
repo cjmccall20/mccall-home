@@ -10,13 +10,21 @@ import SwiftUI
 struct GrocerySectionView: View {
     let category: GroceryItem.Category
     let items: [GroceryItem]
+    var ingredientPreferences: [IngredientPreference]
     let onToggle: (GroceryItem) -> Void
     let onDelete: (GroceryItem) -> Void
 
     @State private var isExpanded = true
 
+    private let preferenceService = IngredientPreferenceService.shared
+
     var checkedCount: Int {
         items.filter { $0.isChecked }.count
+    }
+
+    /// Find the matching ingredient preference for an item
+    func preferenceForItem(_ item: GroceryItem) -> IngredientPreference? {
+        preferenceService.findMatchingPreference(for: item.name, in: ingredientPreferences)
     }
 
     var body: some View {
@@ -54,6 +62,7 @@ struct GrocerySectionView: View {
                 ForEach(items) { item in
                     GroceryItemRow(
                         item: item,
+                        ingredientPreference: preferenceForItem(item),
                         onToggle: { onToggle(item) },
                         onDelete: { onDelete(item) }
                     )
@@ -96,6 +105,7 @@ struct GrocerySectionView: View {
                 createdAt: Date()
             )
         ],
+        ingredientPreferences: [],
         onToggle: { _ in },
         onDelete: { _ in }
     )

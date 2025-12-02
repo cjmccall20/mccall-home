@@ -10,6 +10,7 @@ import SwiftUI
 struct RecipeListView: View {
     @StateObject private var viewModel = RecipesViewModel()
     @State private var showCreateRecipe = false
+    @State private var showImportURL = false
 
     var body: some View {
         NavigationStack {
@@ -28,13 +29,23 @@ struct RecipeListView: View {
                     }
                 }
 
-                // FAB
+                // FAB with menu
                 VStack {
                     Spacer()
                     HStack {
                         Spacer()
-                        Button {
-                            showCreateRecipe = true
+                        Menu {
+                            Button {
+                                showCreateRecipe = true
+                            } label: {
+                                Label("Create Manually", systemImage: "square.and.pencil")
+                            }
+
+                            Button {
+                                showImportURL = true
+                            } label: {
+                                Label("Import from URL", systemImage: "link")
+                            }
                         } label: {
                             Image(systemName: "plus")
                                 .font(.title2)
@@ -51,6 +62,11 @@ struct RecipeListView: View {
             }
             .navigationTitle("Recipes")
             .searchable(text: $viewModel.searchText, prompt: "Search recipes")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    proteinFilterMenu
+                }
+            }
             .refreshable {
                 await viewModel.fetchRecipes()
             }
@@ -59,6 +75,9 @@ struct RecipeListView: View {
             }
             .sheet(isPresented: $showCreateRecipe) {
                 CreateRecipeView(viewModel: viewModel)
+            }
+            .sheet(isPresented: $showImportURL) {
+                ImportRecipeURLView(viewModel: viewModel)
             }
             .alert("Error", isPresented: .constant(viewModel.error != nil)) {
                 Button("OK") {
@@ -72,25 +91,61 @@ struct RecipeListView: View {
         }
     }
 
-    private var recipeList: some View {
-        List {
-            ForEach(viewModel.filteredRecipes) { recipe in
-                NavigationLink {
-                    RecipeDetailView(recipe: recipe, viewModel: viewModel)
-                } label: {
-                    RecipeRowView(recipe: recipe)
+    private var proteinFilterMenu: some View {
+        Menu {
+            Button {
+                viewModel.setProteinFilter(nil)
+            } label: {
+                HStack {
+                    Text("All Proteins")
+                    if viewModel.selectedProteinFilter == nil {
+                        Image(systemName: "checkmark")
+                    }
                 }
             }
-            .onDelete { indexSet in
-                for index in indexSet {
-                    let recipe = viewModel.filteredRecipes[index]
-                    Task {
-                        await viewModel.deleteRecipe(recipe)
+
+            Divider()
+
+            ForEach(Recipe.ProteinType.allCases, id: \.self) { protein in
+                Button {
+                    viewModel.setProteinFilter(protein)
+                } label: {
+                    HStack {
+                        Text(protein.displayName)
+                        if viewModel.selectedProteinFilter == protein {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: viewModel.selectedProteinFilter != nil ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+        }
+    }
+
+    private var recipeList: some View {
+        List {
+            ForEach(viewModel.groupedByProtein, id: \.protein) { group in
+                Section(group.protein.displayName) {
+                    ForEach(group.recipes) { recipe in
+                        NavigationLink {
+                            RecipeDetailView(recipe: recipe, viewModel: viewModel)
+                        } label: {
+                            RecipeRowView(recipe: recipe)
+                        }
+                    }
+                    .onDelete { indexSet in
+                        for index in indexSet {
+                            let recipe = group.recipes[index]
+                            Task {
+                                await viewModel.deleteRecipe(recipe)
+                            }
+                        }
                     }
                 }
             }
         }
-        .listStyle(.plain)
+        .listStyle(.insetGrouped)
     }
 }
 

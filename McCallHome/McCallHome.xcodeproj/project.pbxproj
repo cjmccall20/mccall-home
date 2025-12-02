@@ -8,15 +8,30 @@
 
 /* Begin PBXBuildFile section */
 		A699ACE32EDD2B33006851F8 /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = A699ACE22EDD2B33006851F8 /* Supabase */; };
+		A6DD245F2EDF7CF4003D5437 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = A6DD245E2EDF7CF3003D5437 /* GoogleSignIn */; };
+		A6DD24612EDF7CF4003D5437 /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = A6DD24602EDF7CF4003D5437 /* GoogleSignInSwift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		A699ACC62EDD0874006851F8 /* McCallHome.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = McCallHome.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		A6DD24632EDF7E23003D5437 /* Exceptions for "McCallHome" folder in "McCallHome" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = A699ACC52EDD0874006851F8 /* McCallHome */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		A699ACC82EDD0874006851F8 /* McCallHome */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				A6DD24632EDF7E23003D5437 /* Exceptions for "McCallHome" folder in "McCallHome" target */,
+			);
 			path = McCallHome;
 			sourceTree = "<group>";
 		};
@@ -27,7 +42,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A6DD24612EDF7CF4003D5437 /* GoogleSignInSwift in Frameworks */,
 				A699ACE32EDD2B33006851F8 /* Supabase in Frameworks */,
+				A6DD245F2EDF7CF4003D5437 /* GoogleSignIn in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -79,6 +96,8 @@
 			name = McCallHome;
 			packageProductDependencies = (
 				A699ACE22EDD2B33006851F8 /* Supabase */,
+				A6DD245E2EDF7CF3003D5437 /* GoogleSignIn */,
+				A6DD24602EDF7CF4003D5437 /* GoogleSignInSwift */,
 			);
 			productName = McCallHome;
 			productReference = A699ACC62EDD0874006851F8 /* McCallHome.app */;
@@ -110,6 +129,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				A699ACD42EDD09B8006851F8 /* XCRemoteSwiftPackageReference "supabase-swift" */,
+				A6DD245D2EDF7CF3003D5437 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A699ACC72EDD0874006851F8 /* Products */;
@@ -271,6 +291,7 @@
 				DEVELOPMENT_TEAM = 7PJ27N6M49;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = McCallHome/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -303,6 +324,7 @@
 				DEVELOPMENT_TEAM = 7PJ27N6M49;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = McCallHome/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -357,6 +379,14 @@
 				minimumVersion = 2.5.1;
 			};
 		};
+		A6DD245D2EDF7CF3003D5437 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/GoogleSignIn-iOS";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 9.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -364,6 +394,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A699ACD42EDD09B8006851F8 /* XCRemoteSwiftPackageReference "supabase-swift" */;
 			productName = Supabase;
+		};
+		A6DD245E2EDF7CF3003D5437 /* GoogleSignIn */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A6DD245D2EDF7CF3003D5437 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignIn;
+		};
+		A6DD24602EDF7CF4003D5437 /* GoogleSignInSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A6DD245D2EDF7CF3003D5437 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignInSwift;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

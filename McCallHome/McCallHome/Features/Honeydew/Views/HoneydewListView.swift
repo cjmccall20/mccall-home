@@ -92,27 +92,74 @@ struct HoneydewListView: View {
 
     private var taskList: some View {
         List {
-            ForEach(viewModel.filteredTasks) { task in
-                NavigationLink {
-                    TaskDetailView(task: task, viewModel: viewModel)
-                } label: {
-                    HoneydewRowView(task: task) {
-                        Task {
-                            await viewModel.toggleComplete(task)
+            if viewModel.filter == .complete {
+                // Grouped by day view for completed tasks
+                ForEach(viewModel.completedTasksByDay, id: \.date) { group in
+                    Section {
+                        ForEach(group.tasks) { task in
+                            NavigationLink {
+                                TaskDetailView(task: task, viewModel: viewModel)
+                            } label: {
+                                HoneydewRowView(
+                                    task: task,
+                                    assigneeName: viewModel.memberName(for: task.assignedTo)
+                                ) {
+                                    Task {
+                                        await viewModel.toggleComplete(task)
+                                    }
+                                }
+                            }
+                        }
+                        .onDelete { indexSet in
+                            for index in indexSet {
+                                let task = group.tasks[index]
+                                Task {
+                                    await viewModel.deleteTask(task)
+                                }
+                            }
+                        }
+                    } header: {
+                        Text(formatGroupDate(group.date))
+                    }
+                }
+            } else {
+                ForEach(viewModel.filteredTasks) { task in
+                    NavigationLink {
+                        TaskDetailView(task: task, viewModel: viewModel)
+                    } label: {
+                        HoneydewRowView(
+                            task: task,
+                            assigneeName: viewModel.memberName(for: task.assignedTo)
+                        ) {
+                            Task {
+                                await viewModel.toggleComplete(task)
+                            }
                         }
                     }
                 }
-            }
-            .onDelete { indexSet in
-                for index in indexSet {
-                    let task = viewModel.filteredTasks[index]
-                    Task {
-                        await viewModel.deleteTask(task)
+                .onDelete { indexSet in
+                    for index in indexSet {
+                        let task = viewModel.filteredTasks[index]
+                        Task {
+                            await viewModel.deleteTask(task)
+                        }
                     }
                 }
             }
         }
         .listStyle(.plain)
+    }
+
+    private func formatGroupDate(_ date: Date) -> String {
+        if Calendar.current.isDateInToday(date) {
+            return "Today"
+        } else if Calendar.current.isDateInYesterday(date) {
+            return "Yesterday"
+        } else {
+            let formatter = DateFormatter()
+            formatter.dateStyle = .medium
+            return formatter.string(from: date)
+        }
     }
 }
 

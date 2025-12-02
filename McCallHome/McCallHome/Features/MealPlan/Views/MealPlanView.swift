@@ -10,7 +10,10 @@ import SwiftUI
 struct MealPlanView: View {
     @StateObject private var viewModel = MealPlanViewModel()
     @State private var selectedDate: Date?
-    @State private var showRecipePicker = false
+    @State private var selectedMealType: MealPlanEntry.MealType?
+    @State private var showMealPicker = false
+    @State private var showMealDetail = false
+    @State private var showError = false
 
     var body: some View {
         NavigationStack {
@@ -47,18 +50,29 @@ struct MealPlanView: View {
             .refreshable {
                 await viewModel.fetchMealPlan()
             }
-            .sheet(isPresented: $showRecipePicker) {
-                if let date = selectedDate {
-                    RecipePickerView(viewModel: viewModel, date: date)
+            .sheet(isPresented: $showMealPicker) {
+                if let date = selectedDate, let mealType = selectedMealType {
+                    MealPickerView(viewModel: viewModel, date: date, mealType: mealType)
                 }
             }
-            .alert("Error", isPresented: .constant(viewModel.error != nil)) {
+            .sheet(isPresented: $showMealDetail) {
+                if let date = selectedDate, let mealType = selectedMealType {
+                    MealDetailView(viewModel: viewModel, date: date, mealType: mealType)
+                }
+            }
+            .alert("Error", isPresented: $showError) {
                 Button("OK") {
                     viewModel.error = nil
                 }
             } message: {
                 if let error = viewModel.error {
                     Text(error)
+                }
+            }
+            .onChange(of: viewModel.error) { _, newError in
+                // Only show error when no sheets are presented
+                if newError != nil && !showMealPicker && !showMealDetail {
+                    showError = true
                 }
             }
         }
@@ -94,18 +108,29 @@ struct MealPlanView: View {
     }
 
     private var weekGrid: some View {
-        LazyVGrid(columns: [GridItem(.flexible())], spacing: 12) {
+        LazyVGrid(columns: [GridItem(.flexible())], spacing: 16) {
             ForEach(viewModel.weekDays, id: \.self) { date in
                 DayPlanView(
                     date: date,
-                    recipe: viewModel.recipe(for: date),
-                    onTap: {
+                    viewModel: viewModel,
+                    onEmptySlotTap: { mealType in
                         selectedDate = date
-                        showRecipePicker = true
+                        selectedMealType = mealType
+                        showMealPicker = true
                     },
-                    onRemove: {
+                    onFilledSlotTap: { mealType in
+                        selectedDate = date
+                        selectedMealType = mealType
+                        showMealDetail = true
+                    },
+                    onAddDishTap: { mealType in
+                        selectedDate = date
+                        selectedMealType = mealType
+                        showMealPicker = true
+                    },
+                    onRemove: { entry in
                         Task {
-                            await viewModel.removeFromPlan(date: date)
+                            await viewModel.removeFromPlan(entry: entry)
                         }
                     }
                 )

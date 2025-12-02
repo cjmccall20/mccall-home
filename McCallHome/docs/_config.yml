@@ -1,0 +1,8 @@
+title: McCall Home
+description: Privacy Policy and Terms of Service
+theme: minima
+baseurl: "/mccall-home"
+url: "https://mccall-family.github.io"
+
+# Build settings
+markdown: kramdown

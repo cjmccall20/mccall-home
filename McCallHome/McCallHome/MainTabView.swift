@@ -32,9 +32,9 @@ struct MainTabView: View {
                     Label("Grocery", systemImage: "cart")
                 }
 
-            SettingsView()
+            MoreView()
                 .tabItem {
-                    Label("Settings", systemImage: "gear")
+                    Label("More", systemImage: "ellipsis.circle")
                 }
         }
     }

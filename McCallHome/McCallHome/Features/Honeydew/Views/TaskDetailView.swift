@@ -18,6 +18,7 @@ struct TaskDetailView: View {
     @State private var dueDate: Date
     @State private var hasDueDate: Bool
     @State private var priority: HoneydewTask.Priority
+    @State private var selectedMemberId: UUID?
     @State private var isEditing = false
     @State private var showDeleteConfirmation = false
 
@@ -29,6 +30,7 @@ struct TaskDetailView: View {
         _dueDate = State(initialValue: task.dueDate ?? Date())
         _hasDueDate = State(initialValue: task.dueDate != nil)
         _priority = State(initialValue: task.priority)
+        _selectedMemberId = State(initialValue: task.assignedTo)
     }
 
     var body: some View {
@@ -59,6 +61,23 @@ struct TaskDetailView: View {
                 } else {
                     Text("No due date")
                         .foregroundStyle(.secondary)
+                }
+            }
+
+            Section("Assignment") {
+                if isEditing {
+                    Picker("Assigned To", selection: $selectedMemberId) {
+                        Text("Anyone").tag(nil as UUID?)
+                        ForEach(viewModel.householdMembers) { member in
+                            Text(member.name).tag(member.id as UUID?)
+                        }
+                    }
+                } else {
+                    HStack {
+                        Image(systemName: "person")
+                            .foregroundStyle(.purple)
+                        Text(viewModel.memberName(for: task.assignedTo) ?? "Anyone")
+                    }
                 }
             }
 
@@ -142,6 +161,7 @@ struct TaskDetailView: View {
         updatedTask.description = description.isEmpty ? nil : description
         updatedTask.dueDate = hasDueDate ? dueDate : nil
         updatedTask.priority = priority
+        updatedTask.assignedTo = selectedMemberId
         updatedTask.updatedAt = Date()
 
         Task {

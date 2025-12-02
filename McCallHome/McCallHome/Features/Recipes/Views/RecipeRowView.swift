@@ -12,8 +12,21 @@ struct RecipeRowView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(recipe.title)
-                .font(.headline)
+            HStack {
+                Text(recipe.title)
+                    .font(.headline)
+
+                Spacer()
+
+                // Protein type badge
+                Text(recipe.proteinType.displayName)
+                    .font(.caption2)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(proteinColor.opacity(0.15))
+                    .foregroundStyle(proteinColor)
+                    .clipShape(Capsule())
+            }
 
             HStack(spacing: 16) {
                 if let prepTime = recipe.prepTime {
@@ -54,6 +67,20 @@ struct RecipeRowView: View {
         }
         .padding(.vertical, 4)
     }
+
+    private var proteinColor: Color {
+        switch recipe.proteinType {
+        case .chicken: return .orange
+        case .beef: return .red
+        case .pork: return .pink
+        case .lamb: return .brown
+        case .turkey: return .orange
+        case .fish, .salmon: return .cyan
+        case .shrimp: return .pink
+        case .vegetarian: return .green
+        case .other: return .gray
+        }
+    }
 }
 
 #Preview {
@@ -64,12 +91,31 @@ struct RecipeRowView: View {
             title: "Chicken Parmesan",
             sourceUrl: nil,
             sourceType: .manual,
+            proteinType: .chicken,
             baseServings: 4,
             ingredients: [],
             steps: [],
             tags: ["Italian", "Chicken", "Dinner"],
             prepTime: 20,
             cookTime: 30,
+            notes: nil,
+            createdAt: Date(),
+            updatedAt: Date()
+        ))
+
+        RecipeRowView(recipe: Recipe(
+            id: UUID(),
+            householdId: UUID(),
+            title: "Grilled Salmon",
+            sourceUrl: nil,
+            sourceType: .manual,
+            proteinType: .salmon,
+            baseServings: 2,
+            ingredients: [],
+            steps: [],
+            tags: ["Healthy", "Quick"],
+            prepTime: 10,
+            cookTime: 15,
             notes: nil,
             createdAt: Date(),
             updatedAt: Date()

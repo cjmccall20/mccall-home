@@ -1,0 +1,808 @@
+================================================================================
+McCallHome - MANUAL SETUP INSTRUCTIONS
+================================================================================
+
+This file contains all manual steps you need to complete outside of Xcode.
+You can paste sections of this into another Claude instance for guidance.
+
+================================================================================
+PART 1: SUPABASE SCHEMA UPDATES
+================================================================================
+
+Run the following SQL in your Supabase SQL Editor (Dashboard > SQL Editor > New Query):
+
+--------------------------------------------------------------------------------
+-- SCHEMA MIGRATION: McCallHome Feature Updates
+-- Run this ENTIRE script in one go
+--------------------------------------------------------------------------------
+
+-- 1. Add protein_type to recipes
+ALTER TABLE recipes
+ADD COLUMN IF NOT EXISTS protein_type TEXT DEFAULT 'other';
+
+-- 2. Add recurring task fields to tasks
+ALTER TABLE tasks
+ADD COLUMN IF NOT EXISTS recurrence_rule JSONB DEFAULT NULL,
+ADD COLUMN IF NOT EXISTS reminder_minutes_before INTEGER DEFAULT NULL,
+ADD COLUMN IF NOT EXISTS next_occurrence DATE DEFAULT NULL;
+
+-- 3. Update meal_plan table for multiple meals per day and eat out
+ALTER TABLE meal_plan
+ADD COLUMN IF NOT EXISTS meal_type TEXT DEFAULT 'dinner',
+ADD COLUMN IF NOT EXISTS is_eat_out BOOLEAN DEFAULT FALSE,
+ADD COLUMN IF NOT EXISTS eat_out_location TEXT DEFAULT NULL;
+
+-- Make recipe_id nullable (for eat out entries)
+ALTER TABLE meal_plan
+ALTER COLUMN recipe_id DROP NOT NULL;
+
+-- 4. Add source tracking to grocery_items
+ALTER TABLE grocery_items
+ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'manual',
+ADD COLUMN IF NOT EXISTS from_recipe_id UUID DEFAULT NULL;
+
+-- 5. Create previous_grocery_items table for quick re-add
+CREATE TABLE IF NOT EXISTS previous_grocery_items (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    household_id UUID NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    category TEXT DEFAULT 'other',
+    times_used INTEGER DEFAULT 1,
+    last_used_at TIMESTAMPTZ DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 6. Create index for faster lookups
+CREATE INDEX IF NOT EXISTS idx_previous_grocery_items_household
+ON previous_grocery_items(household_id);
+
+CREATE INDEX IF NOT EXISTS idx_previous_grocery_items_name
+ON previous_grocery_items(household_id, name);
+
+-- 7. Disable RLS on new table (for development)
+ALTER TABLE previous_grocery_items DISABLE ROW LEVEL SECURITY;
+
+-- 8. Update scheduled_date to use DATE type if it's TIMESTAMPTZ
+-- (This fixes the data format bug)
+-- First check current type, then update if needed
+DO $$
+BEGIN
+    -- If scheduled_date is timestamptz, we need custom date handling
+    -- The iOS app will send ISO8601 dates, Supabase will handle conversion
+    RAISE NOTICE 'Schema migration complete';
+END $$;
+
+--------------------------------------------------------------------------------
+-- END SCHEMA MIGRATION
+--------------------------------------------------------------------------------
+
+
+================================================================================
+PART 2: SUPABASE EDGE FUNCTION SETUP
+================================================================================
+
+CONTEXT FOR CLAUDE:
+I need to set up a Supabase Edge Function to scrape recipe data from URLs using
+the Firecrawl API. This is my first time setting up Edge Functions.
+
+STEP 1: Install Supabase CLI (if not already installed)
+--------------------------------------------------------------------------------
+# On macOS with Homebrew:
+brew install supabase/tap/supabase
+
+# Or with npm:
+npm install -g supabase
+
+# Verify installation:
+supabase --version
+
+
+STEP 2: Login to Supabase CLI
+--------------------------------------------------------------------------------
+supabase login
+# This will open a browser window to authenticate
+
+
+STEP 3: Link your project
+--------------------------------------------------------------------------------
+cd /Users/coopermccall/Desktop/Personal_Projects/mccall-home
+
+# Initialize Supabase in your project (if not done)
+supabase init
+
+# Link to your remote project
+# Get your project ref from: Dashboard > Project Settings > General > Reference ID
+supabase link --project-ref YOUR_PROJECT_REF
+
+
+STEP 4: Set secrets for Edge Functions
+--------------------------------------------------------------------------------
+# Set your Firecrawl API key
+supabase secrets set FIRECRAWL_API_KEY=your_firecrawl_api_key_here
+
+# Set your Supabase service role key (for bypassing RLS if needed)
+# Get this from: Dashboard > Project Settings > API > service_role key
+supabase secrets set SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
+
+
+STEP 5: Create the Edge Function
+--------------------------------------------------------------------------------
+supabase functions new scrape-recipe
+
+
+STEP 6: Replace the function code
+--------------------------------------------------------------------------------
+Replace the contents of:
+supabase/functions/scrape-recipe/index.ts
+
+With this code:
+
+```typescript
+// supabase/functions/scrape-recipe/index.ts
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+
+const FIRECRAWL_API_KEY = Deno.env.get('FIRECRAWL_API_KEY')
+const FIRECRAWL_API_URL = 'https://api.firecrawl.dev/v1/scrape'
+
+interface RecipeData {
+  title: string
+  ingredients: Array<{
+    name: string
+    quantity: number | null
+    unit: string | null
+    notes: string | null
+  }>
+  steps: Array<{
+    step_number: number
+    instruction: string
+  }>
+  prep_time: number | null
+  cook_time: number | null
+  base_servings: number
+  tags: string[]
+  source_url: string
+}
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
+
+serve(async (req) => {
+  // Handle CORS preflight requests
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders })
+  }
+
+  try {
+    const { url } = await req.json()
+
+    if (!url) {
+      return new Response(
+        JSON.stringify({ error: 'URL is required' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    if (!FIRECRAWL_API_KEY) {
+      return new Response(
+        JSON.stringify({ error: 'Firecrawl API key not configured' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    // Call Firecrawl API to scrape the page
+    const firecrawlResponse = await fetch(FIRECRAWL_API_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${FIRECRAWL_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        url: url,
+        formats: ['markdown', 'html'],
+        onlyMainContent: true,
+      }),
+    })
+
+    if (!firecrawlResponse.ok) {
+      const errorText = await firecrawlResponse.text()
+      console.error('Firecrawl error:', errorText)
+      return new Response(
+        JSON.stringify({ error: 'Failed to scrape URL', details: errorText }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    const firecrawlData = await firecrawlResponse.json()
+    const markdown = firecrawlData.data?.markdown || ''
+    const html = firecrawlData.data?.html || ''
+    const metadata = firecrawlData.data?.metadata || {}
+
+    // Parse the recipe from the scraped content
+    const recipe = parseRecipe(markdown, html, metadata, url)
+
+    return new Response(
+      JSON.stringify({ success: true, recipe }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    )
+
+  } catch (error) {
+    console.error('Error:', error)
+    return new Response(
+      JSON.stringify({ error: 'Internal server error', details: error.message }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    )
+  }
+})
+
+function parseRecipe(markdown: string, html: string, metadata: any, url: string): RecipeData {
+  // Extract title from metadata or content
+  let title = metadata.title || metadata.ogTitle || ''
+
+  // Clean up title (remove site name suffix)
+  title = title.split('|')[0].split('-')[0].trim()
+  if (!title) {
+    const titleMatch = markdown.match(/^#\s+(.+)$/m)
+    title = titleMatch ? titleMatch[1] : 'Untitled Recipe'
+  }
+
+  // Parse ingredients
+  const ingredients = parseIngredients(markdown)
+
+  // Parse instructions/steps
+  const steps = parseSteps(markdown)
+
+  // Parse times
+  const { prepTime, cookTime } = parseTimes(markdown)
+
+  // Parse servings
+  const servings = parseServings(markdown)
+
+  // Generate tags based on content
+  const tags = generateTags(markdown, title)
+
+  return {
+    title,
+    ingredients,
+    steps,
+    prep_time: prepTime,
+    cook_time: cookTime,
+    base_servings: servings,
+    tags,
+    source_url: url,
+  }
+}
+
+function parseIngredients(markdown: string): RecipeData['ingredients'] {
+  const ingredients: RecipeData['ingredients'] = []
+
+  // Look for ingredients section
+  const ingredientPatterns = [
+    /#+\s*ingredients?\s*\n([\s\S]*?)(?=\n#+|\n\n\n|$)/i,
+    /\*\*ingredients?\*\*\s*\n([\s\S]*?)(?=\n\*\*|$)/i,
+  ]
+
+  let ingredientSection = ''
+  for (const pattern of ingredientPatterns) {
+    const match = markdown.match(pattern)
+    if (match) {
+      ingredientSection = match[1]
+      break
+    }
+  }
+
+  if (!ingredientSection) {
+    // Try to find bullet points that look like ingredients
+    const lines = markdown.split('\n')
+    const ingredientLines = lines.filter(line =>
+      /^[-*]\s+\d*\s*[\d\/]+\s*(cup|tbsp|tsp|oz|lb|g|kg|ml|l|pound|ounce|teaspoon|tablespoon)/i.test(line)
+    )
+    ingredientSection = ingredientLines.join('\n')
+  }
+
+  // Parse individual ingredients
+  const lines = ingredientSection.split('\n').filter(l => l.trim())
+
+  for (const line of lines) {
+    const cleanLine = line.replace(/^[-*•]\s*/, '').trim()
+    if (!cleanLine) continue
+
+    // Try to parse quantity and unit
+    const parsed = parseIngredientLine(cleanLine)
+    ingredients.push(parsed)
+  }
+
+  return ingredients
+}
+
+function parseIngredientLine(line: string): RecipeData['ingredients'][0] {
+  // Common patterns: "2 cups flour", "1/2 tsp salt", "3 large eggs"
+  const quantityPattern = /^([\d\s\/½¼¾⅓⅔⅛]+)\s*(cups?|tbsp|tsp|tablespoons?|teaspoons?|oz|ounces?|lb|lbs?|pounds?|g|grams?|kg|ml|l|liters?|bunch|cloves?|cans?|packages?|pieces?|slices?|large|medium|small)?\s*(.+)/i
+
+  const match = line.match(quantityPattern)
+
+  if (match) {
+    let quantity = parseQuantity(match[1])
+    const unit = match[2] || null
+    const name = match[3].trim()
+
+    return { name, quantity, unit, notes: null }
+  }
+
+  return { name: line, quantity: null, unit: null, notes: null }
+}
+
+function parseQuantity(str: string): number | null {
+  if (!str) return null
+
+  str = str.trim()
+    .replace('½', '0.5')
+    .replace('¼', '0.25')
+    .replace('¾', '0.75')
+    .replace('⅓', '0.33')
+    .replace('⅔', '0.67')
+    .replace('⅛', '0.125')
+
+  // Handle fractions like "1/2"
+  if (str.includes('/')) {
+    const parts = str.split(/\s+/)
+    let total = 0
+    for (const part of parts) {
+      if (part.includes('/')) {
+        const [num, denom] = part.split('/')
+        total += parseFloat(num) / parseFloat(denom)
+      } else {
+        total += parseFloat(part) || 0
+      }
+    }
+    return total || null
+  }
+
+  const num = parseFloat(str)
+  return isNaN(num) ? null : num
+}
+
+function parseSteps(markdown: string): RecipeData['steps'] {
+  const steps: RecipeData['steps'] = []
+
+  // Look for instructions/directions section
+  const instructionPatterns = [
+    /#+\s*(instructions?|directions?|method|steps?)\s*\n([\s\S]*?)(?=\n#+\s*[a-z]|\n\n\n|$)/i,
+    /\*\*(instructions?|directions?)\*\*\s*\n([\s\S]*?)(?=\n\*\*|$)/i,
+  ]
+
+  let instructionSection = ''
+  for (const pattern of instructionPatterns) {
+    const match = markdown.match(pattern)
+    if (match) {
+      instructionSection = match[2]
+      break
+    }
+  }
+
+  if (!instructionSection) return steps
+
+  // Parse numbered or bulleted steps
+  const lines = instructionSection.split('\n').filter(l => l.trim())
+  let stepNumber = 1
+
+  for (const line of lines) {
+    const cleanLine = line.replace(/^[\d]+[.)]\s*/, '').replace(/^[-*•]\s*/, '').trim()
+    if (!cleanLine || cleanLine.length < 10) continue
+
+    steps.push({
+      step_number: stepNumber++,
+      instruction: cleanLine,
+    })
+  }
+
+  return steps
+}
+
+function parseTimes(markdown: string): { prepTime: number | null, cookTime: number | null } {
+  let prepTime: number | null = null
+  let cookTime: number | null = null
+
+  // Look for prep time
+  const prepMatch = markdown.match(/prep(?:\s*time)?[:\s]*(\d+)\s*(min|minute|hour|hr)/i)
+  if (prepMatch) {
+    prepTime = parseInt(prepMatch[1])
+    if (prepMatch[2].toLowerCase().startsWith('hour') || prepMatch[2].toLowerCase() === 'hr') {
+      prepTime *= 60
+    }
+  }
+
+  // Look for cook time
+  const cookMatch = markdown.match(/cook(?:\s*time)?[:\s]*(\d+)\s*(min|minute|hour|hr)/i)
+  if (cookMatch) {
+    cookTime = parseInt(cookMatch[1])
+    if (cookMatch[2].toLowerCase().startsWith('hour') || cookMatch[2].toLowerCase() === 'hr') {
+      cookTime *= 60
+    }
+  }
+
+  return { prepTime, cookTime }
+}
+
+function parseServings(markdown: string): number {
+  const servingsMatch = markdown.match(/(?:serves?|servings?|yield)[:\s]*(\d+)/i)
+  return servingsMatch ? parseInt(servingsMatch[1]) : 4
+}
+
+function generateTags(markdown: string, title: string): string[] {
+  const tags: string[] = []
+  const content = (markdown + ' ' + title).toLowerCase()
+
+  // Protein tags
+  const proteins = ['chicken', 'beef', 'pork', 'lamb', 'turkey', 'shrimp', 'salmon', 'fish', 'tofu', 'vegetarian', 'vegan']
+  for (const protein of proteins) {
+    if (content.includes(protein)) tags.push(protein)
+  }
+
+  // Cuisine tags
+  const cuisines = ['italian', 'mexican', 'chinese', 'japanese', 'indian', 'thai', 'greek', 'french', 'american', 'korean']
+  for (const cuisine of cuisines) {
+    if (content.includes(cuisine)) tags.push(cuisine)
+  }
+
+  // Meal type tags
+  if (content.includes('breakfast')) tags.push('breakfast')
+  if (content.includes('lunch')) tags.push('lunch')
+  if (content.includes('dinner')) tags.push('dinner')
+  if (content.includes('dessert') || content.includes('sweet')) tags.push('dessert')
+  if (content.includes('appetizer') || content.includes('starter')) tags.push('appetizer')
+
+  // Diet tags
+  if (content.includes('gluten-free') || content.includes('gluten free')) tags.push('gluten-free')
+  if (content.includes('dairy-free') || content.includes('dairy free')) tags.push('dairy-free')
+  if (content.includes('keto') || content.includes('low-carb') || content.includes('low carb')) tags.push('low-carb')
+  if (content.includes('healthy')) tags.push('healthy')
+  if (content.includes('quick') || content.includes('easy')) tags.push('quick')
+
+  return [...new Set(tags)] // Remove duplicates
+}
+```
+
+
+STEP 7: Deploy the Edge Function
+--------------------------------------------------------------------------------
+cd /Users/coopermccall/Desktop/Personal_Projects/mccall-home
+supabase functions deploy scrape-recipe
+
+
+STEP 8: Test the Edge Function
+--------------------------------------------------------------------------------
+# Get your project URL from Dashboard > Project Settings > API
+# The function URL will be: https://YOUR_PROJECT_REF.supabase.co/functions/v1/scrape-recipe
+
+# Test with curl:
+curl -X POST 'https://YOUR_PROJECT_REF.supabase.co/functions/v1/scrape-recipe' \
+  -H 'Authorization: Bearer YOUR_ANON_KEY' \
+  -H 'Content-Type: application/json' \
+  -d '{"url": "https://www.allrecipes.com/recipe/228285/teriyaki-salmon/"}'
+
+
+================================================================================
+PART 3: GOOGLE APPS SCRIPT - DAILY DIGEST EMAIL
+================================================================================
+
+CONTEXT FOR CLAUDE:
+I want to set up a Google Apps Script that sends a daily digest email with:
+- Tasks due today and upcoming
+- Outstanding/overdue tasks
+- Meals planned for today
+This should query my Supabase database and send to household members.
+
+STEP 1: Create a new Google Apps Script
+--------------------------------------------------------------------------------
+1. Go to: https://script.google.com
+2. Click "New Project"
+3. Name it "McCallHome Daily Digest"
+
+
+STEP 2: Add the script code
+--------------------------------------------------------------------------------
+Replace the contents of Code.gs with:
+
+```javascript
+// McCallHome Daily Digest Email Script
+// Configure these values:
+const CONFIG = {
+  SUPABASE_URL: 'https://YOUR_PROJECT_REF.supabase.co',
+  SUPABASE_SERVICE_KEY: 'YOUR_SERVICE_ROLE_KEY', // Use service role for server-side access
+  HOUSEHOLD_ID: 'YOUR_HOUSEHOLD_UUID', // Get this from your users table after signing up
+  RECIPIENT_EMAILS: ['you@email.com', 'spouse@email.com'], // Emails to send digest to
+  SEND_TIME_HOUR: 7, // 7 AM
+  TIMEZONE: 'America/New_York', // Your timezone
+};
+
+function sendDailyDigest() {
+  try {
+    const today = new Date();
+    const todayStr = Utilities.formatDate(today, CONFIG.TIMEZONE, 'yyyy-MM-dd');
+
+    // Fetch tasks
+    const tasks = fetchTasks();
+    const todayTasks = tasks.filter(t => t.due_date && t.due_date.startsWith(todayStr) && !t.is_complete);
+    const overdueTasks = tasks.filter(t => t.due_date && t.due_date < todayStr && !t.is_complete);
+    const upcomingTasks = tasks.filter(t => {
+      if (!t.due_date || t.is_complete) return false;
+      const dueDate = new Date(t.due_date);
+      const diffDays = Math.ceil((dueDate - today) / (1000 * 60 * 60 * 24));
+      return diffDays > 0 && diffDays <= 7;
+    });
+
+    // Fetch today's meals
+    const meals = fetchMeals(todayStr);
+
+    // Build email HTML
+    const html = buildEmailHtml(todayTasks, overdueTasks, upcomingTasks, meals, today);
+
+    // Send email
+    const subject = `McCallHome Daily Digest - ${Utilities.formatDate(today, CONFIG.TIMEZONE, 'EEEE, MMMM d')}`;
+
+    for (const email of CONFIG.RECIPIENT_EMAILS) {
+      MailApp.sendEmail({
+        to: email,
+        subject: subject,
+        htmlBody: html,
+      });
+    }
+
+    Logger.log('Daily digest sent successfully');
+  } catch (error) {
+    Logger.log('Error sending digest: ' + error.toString());
+  }
+}
+
+function fetchTasks() {
+  const url = `${CONFIG.SUPABASE_URL}/rest/v1/tasks?household_id=eq.${CONFIG.HOUSEHOLD_ID}&order=due_date.asc`;
+  const response = UrlFetchApp.fetch(url, {
+    headers: {
+      'apikey': CONFIG.SUPABASE_SERVICE_KEY,
+      'Authorization': `Bearer ${CONFIG.SUPABASE_SERVICE_KEY}`,
+    },
+  });
+  return JSON.parse(response.getContentText());
+}
+
+function fetchMeals(dateStr) {
+  const url = `${CONFIG.SUPABASE_URL}/rest/v1/meal_plan?household_id=eq.${CONFIG.HOUSEHOLD_ID}&scheduled_date=eq.${dateStr}`;
+  const response = UrlFetchApp.fetch(url, {
+    headers: {
+      'apikey': CONFIG.SUPABASE_SERVICE_KEY,
+      'Authorization': `Bearer ${CONFIG.SUPABASE_SERVICE_KEY}`,
+    },
+  });
+  const entries = JSON.parse(response.getContentText());
+
+  // Fetch recipe details for each meal
+  const meals = [];
+  for (const entry of entries) {
+    let recipeName = 'Unknown';
+    if (entry.is_eat_out) {
+      recipeName = `Eating Out${entry.eat_out_location ? ' at ' + entry.eat_out_location : ''}`;
+    } else if (entry.recipe_id) {
+      const recipeUrl = `${CONFIG.SUPABASE_URL}/rest/v1/recipes?id=eq.${entry.recipe_id}`;
+      const recipeResponse = UrlFetchApp.fetch(recipeUrl, {
+        headers: {
+          'apikey': CONFIG.SUPABASE_SERVICE_KEY,
+          'Authorization': `Bearer ${CONFIG.SUPABASE_SERVICE_KEY}`,
+        },
+      });
+      const recipes = JSON.parse(recipeResponse.getContentText());
+      if (recipes.length > 0) {
+        recipeName = recipes[0].title;
+      }
+    }
+    meals.push({
+      meal_type: entry.meal_type || 'dinner',
+      name: recipeName,
+    });
+  }
+  return meals;
+}
+
+function buildEmailHtml(todayTasks, overdueTasks, upcomingTasks, meals, today) {
+  const dateStr = Utilities.formatDate(today, CONFIG.TIMEZONE, 'EEEE, MMMM d, yyyy');
+
+  let html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+        .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 24px; text-align: center; }
+        .header h1 { margin: 0; font-size: 24px; }
+        .header p { margin: 8px 0 0 0; opacity: 0.9; }
+        .section { padding: 20px; border-bottom: 1px solid #eee; }
+        .section:last-child { border-bottom: none; }
+        .section h2 { margin: 0 0 16px 0; font-size: 18px; color: #333; display: flex; align-items: center; gap: 8px; }
+        .section h2 .emoji { font-size: 20px; }
+        .task-list { list-style: none; padding: 0; margin: 0; }
+        .task-item { padding: 12px; background: #f8f9fa; border-radius: 8px; margin-bottom: 8px; }
+        .task-item.overdue { background: #fff5f5; border-left: 3px solid #e53e3e; }
+        .task-item .title { font-weight: 600; color: #333; }
+        .task-item .meta { font-size: 13px; color: #666; margin-top: 4px; }
+        .meal-item { padding: 12px; background: #f0fdf4; border-radius: 8px; margin-bottom: 8px; display: flex; justify-content: space-between; }
+        .meal-type { font-weight: 600; color: #166534; text-transform: capitalize; }
+        .meal-name { color: #333; }
+        .empty { color: #999; font-style: italic; padding: 12px; }
+        .footer { padding: 16px; text-align: center; font-size: 12px; color: #999; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1>McCallHome</h1>
+          <p>${dateStr}</p>
+        </div>
+  `;
+
+  // Today's Meals
+  html += `
+    <div class="section">
+      <h2><span class="emoji">🍽️</span> Today's Meals</h2>
+  `;
+  if (meals.length === 0) {
+    html += `<p class="empty">No meals planned for today</p>`;
+  } else {
+    for (const meal of meals) {
+      html += `
+        <div class="meal-item">
+          <span class="meal-type">${meal.meal_type}</span>
+          <span class="meal-name">${meal.name}</span>
+        </div>
+      `;
+    }
+  }
+  html += `</div>`;
+
+  // Overdue Tasks
+  if (overdueTasks.length > 0) {
+    html += `
+      <div class="section">
+        <h2><span class="emoji">⚠️</span> Overdue (${overdueTasks.length})</h2>
+        <ul class="task-list">
+    `;
+    for (const task of overdueTasks) {
+      html += `
+        <li class="task-item overdue">
+          <div class="title">${task.title}</div>
+          <div class="meta">Due: ${task.due_date}</div>
+        </li>
+      `;
+    }
+    html += `</ul></div>`;
+  }
+
+  // Today's Tasks
+  html += `
+    <div class="section">
+      <h2><span class="emoji">✅</span> Due Today (${todayTasks.length})</h2>
+  `;
+  if (todayTasks.length === 0) {
+    html += `<p class="empty">No tasks due today</p>`;
+  } else {
+    html += `<ul class="task-list">`;
+    for (const task of todayTasks) {
+      const time = task.due_time ? ` at ${task.due_time}` : '';
+      html += `
+        <li class="task-item">
+          <div class="title">${task.title}</div>
+          ${task.description ? `<div class="meta">${task.description}</div>` : ''}
+          ${time ? `<div class="meta">${time}</div>` : ''}
+        </li>
+      `;
+    }
+    html += `</ul>`;
+  }
+  html += `</div>`;
+
+  // Upcoming Tasks
+  if (upcomingTasks.length > 0) {
+    html += `
+      <div class="section">
+        <h2><span class="emoji">📅</span> Coming Up This Week (${upcomingTasks.length})</h2>
+        <ul class="task-list">
+    `;
+    for (const task of upcomingTasks.slice(0, 5)) {
+      html += `
+        <li class="task-item">
+          <div class="title">${task.title}</div>
+          <div class="meta">Due: ${task.due_date}</div>
+        </li>
+      `;
+    }
+    html += `</ul></div>`;
+  }
+
+  html += `
+        <div class="footer">
+          Sent from McCallHome Daily Digest
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+
+  return html;
+}
+
+// Function to set up the daily trigger
+function setupDailyTrigger() {
+  // Delete existing triggers
+  const triggers = ScriptApp.getProjectTriggers();
+  for (const trigger of triggers) {
+    if (trigger.getHandlerFunction() === 'sendDailyDigest') {
+      ScriptApp.deleteTrigger(trigger);
+    }
+  }
+
+  // Create new trigger
+  ScriptApp.newTrigger('sendDailyDigest')
+    .timeBased()
+    .atHour(CONFIG.SEND_TIME_HOUR)
+    .everyDays(1)
+    .inTimezone(CONFIG.TIMEZONE)
+    .create();
+
+  Logger.log('Daily trigger set up for ' + CONFIG.SEND_TIME_HOUR + ':00 ' + CONFIG.TIMEZONE);
+}
+
+// Test function - run this manually to test
+function testDigest() {
+  sendDailyDigest();
+}
+```
+
+
+STEP 3: Configure the script
+--------------------------------------------------------------------------------
+1. Update the CONFIG object at the top with your values:
+   - SUPABASE_URL: Your Supabase project URL
+   - SUPABASE_SERVICE_KEY: Your service role key (NOT anon key)
+   - HOUSEHOLD_ID: Your household UUID (check users table after you sign up)
+   - RECIPIENT_EMAILS: Email addresses to send digest to
+   - SEND_TIME_HOUR: Hour to send (24-hour format)
+   - TIMEZONE: Your timezone
+
+
+STEP 4: Set up the trigger
+--------------------------------------------------------------------------------
+1. In the Apps Script editor, run the function: setupDailyTrigger()
+2. Grant permissions when prompted
+3. This will create a daily trigger at your specified time
+
+
+STEP 5: Test
+--------------------------------------------------------------------------------
+1. Run the function: testDigest()
+2. Check your email for the digest
+
+
+================================================================================
+PART 4: ENVIRONMENT VARIABLES REFERENCE
+================================================================================
+
+For your reference, here are all the keys/variables used:
+
+iOS App (Config.swift) - PUBLIC values only:
+- SUPABASE_URL: Your Supabase project URL
+- SUPABASE_ANON_KEY: Your Supabase anonymous/public key
+
+Supabase Edge Functions (set via CLI):
+- FIRECRAWL_API_KEY: Your Firecrawl API key
+- SUPABASE_SERVICE_ROLE_KEY: Your Supabase service role key
+
+Google Apps Script:
+- SUPABASE_URL: Your Supabase project URL
+- SUPABASE_SERVICE_KEY: Your Supabase service role key
+- HOUSEHOLD_ID: Your household UUID from the database
+
+
+================================================================================
+END OF MANUAL SETUP INSTRUCTIONS
+================================================================================

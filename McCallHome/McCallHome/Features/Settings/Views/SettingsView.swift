@@ -45,6 +45,12 @@ struct SettingsView: View {
                 // Household Section
                 Section("Household") {
                     NavigationLink {
+                        HouseholdMembersView()
+                    } label: {
+                        Label("Household Members", systemImage: "person.2")
+                    }
+
+                    NavigationLink {
                         PantryStaplesView()
                     } label: {
                         Label("Pantry Staples", systemImage: "archivebox")

@@ -15,6 +15,9 @@ struct RecipeDetailView: View {
 
     @State private var servings: Int
     @State private var showDeleteConfirmation = false
+    @State private var showEditSheet = false
+    @State private var showNotesEditor = false
+    @State private var editableNotes: String = ""
 
     init(recipe: Recipe, viewModel: RecipesViewModel) {
         self.recipe = recipe
@@ -140,15 +143,32 @@ struct RecipeDetailView: View {
                     }
                 }
 
-                if let notes = recipe.notes, !notes.isEmpty {
-                    Divider()
+                Divider()
 
-                    VStack(alignment: .leading, spacing: 8) {
+                // Notes section (always shown)
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
                         Text("Notes")
                             .font(.headline)
+                        Spacer()
+                        Button {
+                            editableNotes = recipe.notes ?? ""
+                            showNotesEditor = true
+                        } label: {
+                            Image(systemName: "pencil")
+                                .font(.subheadline)
+                        }
+                    }
+
+                    if let notes = recipe.notes, !notes.isEmpty {
                         Text(notes)
                             .font(.body)
                             .foregroundStyle(.secondary)
+                    } else {
+                        Text("Add cooking tips, variations, or personal notes...")
+                            .font(.body)
+                            .foregroundStyle(.tertiary)
+                            .italic()
                     }
                 }
             }
@@ -158,11 +178,20 @@ struct RecipeDetailView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
+                    Button {
+                        showEditSheet = true
+                    } label: {
+                        Label("Edit Recipe", systemImage: "pencil")
+                    }
+
                     if let url = recipe.sourceUrl, let sourceUrl = URL(string: url) {
                         Link(destination: sourceUrl) {
                             Label("View Source", systemImage: "safari")
                         }
                     }
+
+                    Divider()
+
                     Button(role: .destructive) {
                         showDeleteConfirmation = true
                     } label: {
@@ -171,6 +200,14 @@ struct RecipeDetailView: View {
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
+            }
+        }
+        .sheet(isPresented: $showEditSheet) {
+            RecipeEditView(recipe: recipe, viewModel: viewModel)
+        }
+        .sheet(isPresented: $showNotesEditor) {
+            NotesEditorView(notes: $editableNotes) {
+                saveNotes()
             }
         }
         .confirmationDialog("Delete Recipe", isPresented: $showDeleteConfirmation) {
@@ -196,6 +233,49 @@ struct RecipeDetailView: View {
             return String(format: "%.1f", value)
         } else {
             return String(format: "%.2f", value)
+        }
+    }
+
+    private func saveNotes() {
+        var updated = recipe
+        updated.notes = editableNotes.isEmpty ? nil : editableNotes
+        updated.updatedAt = Date()
+
+        Task {
+            await viewModel.updateRecipe(updated)
+        }
+    }
+}
+
+// MARK: - Notes Editor View
+
+struct NotesEditorView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Binding var notes: String
+    let onSave: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            VStack {
+                TextEditor(text: $notes)
+                    .padding()
+            }
+            .navigationTitle("Recipe Notes")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Save") {
+                        onSave()
+                        dismiss()
+                    }
+                    .fontWeight(.semibold)
+                }
+            }
         }
     }
 }

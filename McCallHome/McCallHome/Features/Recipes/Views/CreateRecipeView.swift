@@ -19,6 +19,9 @@ struct CreateRecipeView: View {
     @State private var cookTime = ""
     @State private var tags = ""
     @State private var notes = ""
+    @State private var dishCategory: Recipe.DishCategory = .entree
+    @State private var mealCategory: Recipe.MealCategory = .dinner
+    @State private var proteinType: Recipe.ProteinType = .other
 
     @State private var ingredients: [Recipe.Ingredient] = []
     @State private var newIngredientName = ""
@@ -102,6 +105,24 @@ struct CreateRecipeView: View {
                     .autocapitalization(.none)
 
                 Stepper("Servings: \(baseServings)", value: $baseServings, in: 1...20)
+
+                Picker("Dish Type", selection: $dishCategory) {
+                    ForEach(Recipe.DishCategory.allCases, id: \.self) { category in
+                        Label(category.displayName, systemImage: category.iconName).tag(category)
+                    }
+                }
+
+                Picker("Meal Time", selection: $mealCategory) {
+                    ForEach(Recipe.MealCategory.allCases, id: \.self) { category in
+                        Label(category.displayName, systemImage: category.iconName).tag(category)
+                    }
+                }
+
+                Picker("Protein Type", selection: $proteinType) {
+                    ForEach(Recipe.ProteinType.allCases, id: \.self) { protein in
+                        Text(protein.displayName).tag(protein)
+                    }
+                }
             }
 
             Section("Time") {
@@ -251,6 +272,9 @@ struct CreateRecipeView: View {
             title: title,
             sourceUrl: sourceUrl.isEmpty ? nil : sourceUrl,
             sourceType: sourceUrl.isEmpty ? .manual : .url,
+            dishCategory: dishCategory,
+            mealCategory: mealCategory,
+            proteinType: proteinType,
             baseServings: baseServings,
             ingredients: ingredients,
             steps: steps,

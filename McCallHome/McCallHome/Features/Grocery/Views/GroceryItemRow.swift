@@ -9,38 +9,72 @@ import SwiftUI
 
 struct GroceryItemRow: View {
     let item: GroceryItem
+    var ingredientPreference: IngredientPreference?
     let onToggle: () -> Void
     let onDelete: () -> Void
 
+    /// Display name - uses preference display name if available, otherwise item name
+    var displayName: String {
+        ingredientPreference?.displayName ?? item.name
+    }
+
+    /// Whether this item should be selected in person
+    var isInPerson: Bool {
+        ingredientPreference?.isInPerson ?? false
+    }
+
+    /// Preferred store for this item
+    var preferredStore: Store? {
+        ingredientPreference?.preferredStore
+    }
+
     var body: some View {
         HStack(spacing: 12) {
-            // Checkbox
+            // Checkbox or Store icon
             Button {
                 onToggle()
             } label: {
-                Image(systemName: item.isChecked ? "checkmark.circle.fill" : "circle")
-                    .font(.title2)
-                    .foregroundStyle(item.isChecked ? .green : .secondary)
+                if item.isChecked {
+                    // Always show checkmark when checked
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(.green)
+                } else if let store = preferredStore {
+                    // Show store icon when unchecked and has store preference
+                    StoreIconView(store: store, size: 26)
+                } else {
+                    // Regular unchecked circle
+                    Image(systemName: "circle")
+                        .font(.title2)
+                        .foregroundStyle(.secondary)
+                }
             }
             .buttonStyle(.plain)
 
             // Item details
             VStack(alignment: .leading, spacing: 2) {
-                Text(item.name)
+                Text(displayName)
                     .font(.body)
                     .strikethrough(item.isChecked)
                     .foregroundStyle(item.isChecked ? .secondary : .primary)
 
-                if let quantity = item.quantity {
-                    HStack(spacing: 4) {
+                HStack(spacing: 4) {
+                    if let quantity = item.quantity {
                         Text(formatQuantity(quantity))
                         if let unit = item.unit {
                             Text(unit)
                         }
                     }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+
+                    // Show in-person indicator
+                    if isInPerson && !item.isChecked {
+                        Image(systemName: "person.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                    }
                 }
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
 
             Spacer()
@@ -56,6 +90,13 @@ struct GroceryItemRow: View {
             .buttonStyle(.plain)
         }
         .padding(.vertical, 8)
+        .padding(.horizontal, 4)
+        .background(
+            isInPerson && !item.isChecked
+                ? Color.orange.opacity(0.08)
+                : Color.clear
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
     private func formatQuantity(_ value: Double) -> String {

@@ -15,7 +15,7 @@ class TaskService {
 
     func fetchTasks(for householdId: UUID) async throws -> [HoneydewTask] {
         let response: [HoneydewTask] = try await supabase
-            .from("tasks")
+            .from("honeydew_tasks")
             .select()
             .eq("household_id", value: householdId.uuidString)
             .order("due_date", ascending: true)
@@ -26,14 +26,14 @@ class TaskService {
 
     func createTask(_ task: HoneydewTask) async throws {
         try await supabase
-            .from("tasks")
+            .from("honeydew_tasks")
             .insert(task)
             .execute()
     }
 
     func updateTask(_ task: HoneydewTask) async throws {
         try await supabase
-            .from("tasks")
+            .from("honeydew_tasks")
             .update(task)
             .eq("id", value: task.id.uuidString)
             .execute()
@@ -41,7 +41,7 @@ class TaskService {
 
     func deleteTask(_ task: HoneydewTask) async throws {
         try await supabase
-            .from("tasks")
+            .from("honeydew_tasks")
             .delete()
             .eq("id", value: task.id.uuidString)
             .execute()

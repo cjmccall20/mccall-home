@@ -1,0 +1,5 @@
+# Edge Functions Configuration
+
+[scrape-recipe]
+# Disable JWT verification since we're in dev mode and using anon key only
+verify_jwt = false
