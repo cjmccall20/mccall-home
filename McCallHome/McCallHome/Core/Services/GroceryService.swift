@@ -81,16 +81,26 @@ class GroceryService {
         pantryStaples: [PantryStaple],
         householdId: UUID,
         preserveManualItems: Bool = true,
+        preserveCheckedItems: Bool = true,
         dateRange: (start: Date, end: Date)? = nil
     ) async throws -> GroceryList {
-        // Get current list's manual items if we need to preserve them
+        // Get current list's items to preserve (manual items and checked items)
         var manualItemsToPreserve: [GroceryItem] = []
-        if preserveManualItems {
-            let (existingList, existingItems) = try await fetchCurrentList(for: householdId)
-            if existingList != nil {
+        var checkedItemsToPreserve: [GroceryItem] = []
+
+        let (existingList, existingItems) = try await fetchCurrentList(for: householdId)
+        if existingList != nil {
+            if preserveManualItems {
                 manualItemsToPreserve = existingItems.filter { $0.source == .manual || $0.source == .staple }
             }
+            if preserveCheckedItems {
+                // Preserve checked meal plan items (already purchased)
+                checkedItemsToPreserve = existingItems.filter { $0.isChecked && $0.source == .mealPlan }
+            }
         }
+
+        // Create a set of already-purchased item names for deduplication
+        let checkedItemNames = Set(checkedItemsToPreserve.map { $0.name.lowercased() })
 
         // Build recipe entries for the API
         var recipeEntries: [[String: Any]] = []
@@ -169,6 +179,8 @@ class GroceryService {
             smartList.items,
             householdId: householdId,
             manualItemsToPreserve: manualItemsToPreserve,
+            checkedItemsToPreserve: checkedItemsToPreserve,
+            checkedItemNames: checkedItemNames,
             dateRange: dateRange
         )
     }
@@ -177,6 +189,8 @@ class GroceryService {
         _ items: [SmartGroceryItem],
         householdId: UUID,
         manualItemsToPreserve: [GroceryItem],
+        checkedItemsToPreserve: [GroceryItem] = [],
+        checkedItemNames: Set<String> = [],
         dateRange: (start: Date, end: Date)?
     ) async throws -> GroceryList {
         // Mark any existing current list as not current
@@ -212,9 +226,39 @@ class GroceryService {
             .insert(newList)
             .execute()
 
-        // Create grocery items from smart list
         var sortOrder = 0
+
+        // First, add back the checked/purchased items (at the top)
+        for item in checkedItemsToPreserve {
+            let newItem = GroceryItem(
+                id: UUID(),
+                groceryListId: newList.id,
+                name: item.name,
+                quantity: item.quantity,
+                unit: item.unit,
+                category: item.category,
+                isChecked: true,  // Keep them checked
+                sortOrder: sortOrder,
+                source: item.source,
+                fromRecipeId: item.fromRecipeId,
+                createdAt: Date()
+            )
+
+            try await supabase
+                .from("grocery_items")
+                .insert(newItem)
+                .execute()
+
+            sortOrder += 1
+        }
+
+        // Create grocery items from smart list (skipping already-purchased items)
         for smartItem in items {
+            // Skip items that were already purchased
+            if checkedItemNames.contains(smartItem.name.lowercased()) {
+                continue
+            }
+
             let category = mapCategory(smartItem.category)
             let item = GroceryItem(
                 id: UUID(),
@@ -464,6 +508,31 @@ class GroceryService {
             .execute()
     }
 
+    func updateItemQuantity(_ item: GroceryItem, quantity: Double?, unit: String?) async throws {
+        struct ItemUpdate: Encodable {
+            let quantity: Double?
+            let unit: String?
+        }
+
+        try await supabase
+            .from("grocery_items")
+            .update(ItemUpdate(quantity: quantity, unit: unit))
+            .eq("id", value: item.id.uuidString)
+            .execute()
+    }
+
+    func updateItemName(_ item: GroceryItem, name: String) async throws {
+        struct ItemUpdate: Encodable {
+            let name: String
+        }
+
+        try await supabase
+            .from("grocery_items")
+            .update(ItemUpdate(name: name))
+            .eq("id", value: item.id.uuidString)
+            .execute()
+    }
+
     func clearCheckedItems(from listId: UUID) async throws {
         try await supabase
             .from("grocery_items")
@@ -479,6 +548,121 @@ class GroceryService {
             .delete()
             .eq("grocery_list_id", value: listId.uuidString)
             .execute()
+    }
+
+    // MARK: - List Completion
+
+    /// Complete the grocery list and mark it as no longer current
+    func completeList(_ list: GroceryList) async throws {
+        struct ListCompletion: Encodable {
+            let is_completed: Bool
+            let completed_at: String
+            let is_current: Bool
+        }
+
+        try await supabase
+            .from("grocery_lists")
+            .update(ListCompletion(
+                is_completed: true,
+                completed_at: ISO8601DateFormatter().string(from: Date()),
+                is_current: false
+            ))
+            .eq("id", value: list.id.uuidString)
+            .execute()
+    }
+
+    /// Fetch recent completed lists for history (limited to last 3)
+    func fetchRecentCompletedLists(for householdId: UUID, limit: Int = 3) async throws -> [GroceryList] {
+        let lists: [GroceryList] = try await supabase
+            .from("grocery_lists")
+            .select()
+            .eq("household_id", value: householdId.uuidString)
+            .eq("is_completed", value: true)
+            .order("completed_at", ascending: false)
+            .limit(limit)
+            .execute()
+            .value
+        return lists
+    }
+
+    /// Fetch items for a specific list (for viewing history)
+    func fetchItems(for listId: UUID) async throws -> [GroceryItem] {
+        let items: [GroceryItem] = try await supabase
+            .from("grocery_items")
+            .select()
+            .eq("grocery_list_id", value: listId.uuidString)
+            .order("sort_order", ascending: true)
+            .execute()
+            .value
+        return items
+    }
+
+    // MARK: - Smart Merge
+
+    /// Check if the current list has any checked items (mid-shopping)
+    func hasCheckedItems(for householdId: UUID) async throws -> Bool {
+        let (_, items) = try await fetchCurrentList(for: householdId)
+        return items.contains { $0.isChecked }
+    }
+
+    /// Get checked items from the current list (for smart merge)
+    func getCheckedItems(for householdId: UUID) async throws -> [GroceryItem] {
+        let (_, items) = try await fetchCurrentList(for: householdId)
+        return items.filter { $0.isChecked }
+    }
+
+    // MARK: - House Staples
+
+    func addHouseStapleItem(name: String, quantity: String?, category: GroceryItem.Category, to listId: UUID) async throws {
+        // Get current max sort order
+        let items: [GroceryItem] = try await supabase
+            .from("grocery_items")
+            .select()
+            .eq("grocery_list_id", value: listId.uuidString)
+            .order("sort_order", ascending: false)
+            .limit(1)
+            .execute()
+            .value
+
+        let maxSortOrder = items.first?.sortOrder ?? 0
+
+        // Parse quantity string into number and unit
+        let (qty, unit) = parseQuantityString(quantity)
+
+        let item = GroceryItem(
+            id: UUID(),
+            groceryListId: listId,
+            name: name,
+            quantity: qty,
+            unit: unit,
+            category: category,
+            isChecked: false,
+            sortOrder: maxSortOrder + 1,
+            source: .staple,
+            fromRecipeId: nil,
+            createdAt: Date()
+        )
+
+        try await supabase
+            .from("grocery_items")
+            .insert(item)
+            .execute()
+    }
+
+    private func parseQuantityString(_ quantityStr: String?) -> (Double?, String?) {
+        guard let str = quantityStr, !str.isEmpty else { return (nil, nil) }
+
+        // Try to extract number and unit from string like "2 boxes", "1 lb", "3"
+        let components = str.components(separatedBy: CharacterSet.whitespaces)
+        guard let firstComponent = components.first else { return (nil, str) }
+
+        if let number = Double(firstComponent) {
+            let unit = components.dropFirst().joined(separator: " ")
+            return (number, unit.isEmpty ? nil : unit)
+        } else {
+            // No leading number, treat whole string as unit/description
+            return (nil, str)
+        }
     }
 
     // MARK: - Pantry Staples

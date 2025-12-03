@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct Restaurant: Codable, Identifiable, Equatable {
+struct Restaurant: Codable, Identifiable, Equatable, Hashable {
     let id: UUID
     let householdId: UUID
     var name: String
@@ -116,5 +116,11 @@ struct Restaurant: Codable, Identifiable, Equatable {
         } else {
             createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
         }
+    }
+
+    // MARK: - Hashable
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
     }
 }

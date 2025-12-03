@@ -15,6 +15,12 @@ struct GroceryListView: View {
     @State private var showClearOptions = false
     @State private var searchText = ""
     @State private var showDateRangePicker = false
+    @State private var showInstacartOrder = false
+    @State private var itemToEdit: GroceryItem?
+    @State private var showCompleteConfirmation = false
+    @State private var isCompletingShopping = false
+    @State private var showRegenerateConfirmation = false
+    @State private var pendingRegenerateAction: (() -> Void)?
 
     var body: some View {
         NavigationStack {
@@ -49,16 +55,34 @@ struct GroceryListView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Menu {
                         Button {
-                            viewModel.resetToCurrentWeek()
-                            Task {
-                                await viewModel.generateFromMealPlan()
+                            if viewModel.checkedCount > 0 {
+                                // Warn user about regenerating mid-shopping
+                                pendingRegenerateAction = {
+                                    viewModel.resetToCurrentWeek()
+                                    Task {
+                                        await viewModel.generateFromMealPlan()
+                                    }
+                                }
+                                showRegenerateConfirmation = true
+                            } else {
+                                viewModel.resetToCurrentWeek()
+                                Task {
+                                    await viewModel.generateFromMealPlan()
+                                }
                             }
                         } label: {
                             Label("This Week", systemImage: "calendar")
                         }
 
                         Button {
-                            showDateRangePicker = true
+                            if viewModel.checkedCount > 0 {
+                                pendingRegenerateAction = {
+                                    showDateRangePicker = true
+                                }
+                                showRegenerateConfirmation = true
+                            } else {
+                                showDateRangePicker = true
+                            }
                         } label: {
                             Label("Custom Range...", systemImage: "calendar.badge.clock")
                         }
@@ -73,32 +97,73 @@ struct GroceryListView: View {
                 }
 
                 ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
+                    HStack(spacing: 16) {
+                        // Quick add button
                         Button {
                             showAddItem = true
                         } label: {
-                            Label("Add Item", systemImage: "plus")
+                            Image(systemName: "plus")
                         }
 
-                        if viewModel.checkedCount > 0 {
-                            Button(role: .destructive) {
-                                Task {
-                                    await viewModel.clearCheckedItems()
+                        // Instacart button
+                        if viewModel.uncheckedCount > 0 {
+                            Button {
+                                showInstacartOrder = true
+                            } label: {
+                                Image(systemName: "cart.badge.plus")
+                                    .foregroundStyle(.orange)
+                            }
+                        }
+
+                        // Options menu
+                        Menu {
+                            Button {
+                                showAddItem = true
+                            } label: {
+                                Label("Add Item", systemImage: "plus")
+                            }
+
+                            if viewModel.uncheckedCount > 0 {
+                                Button {
+                                    showInstacartOrder = true
+                                } label: {
+                                    Label("Send to Instacart", systemImage: "cart.badge.plus")
                                 }
-                            } label: {
-                                Label("Clear Checked (\(viewModel.checkedCount))", systemImage: "checkmark.circle")
                             }
-                        }
 
-                        if viewModel.totalCount > 0 {
-                            Button(role: .destructive) {
-                                showClearOptions = true
-                            } label: {
-                                Label("Clear All", systemImage: "trash")
+                            // Complete Shopping (show when there's progress)
+                            if viewModel.checkedCount > 0 {
+                                Divider()
+
+                                Button {
+                                    showCompleteConfirmation = true
+                                } label: {
+                                    Label("Complete Shopping", systemImage: "checkmark.circle.fill")
+                                }
                             }
+
+                            Divider()
+
+                            if viewModel.checkedCount > 0 {
+                                Button(role: .destructive) {
+                                    Task {
+                                        await viewModel.clearCheckedItems()
+                                    }
+                                } label: {
+                                    Label("Clear Checked (\(viewModel.checkedCount))", systemImage: "checkmark.circle")
+                                }
+                            }
+
+                            if viewModel.totalCount > 0 {
+                                Button(role: .destructive) {
+                                    showClearOptions = true
+                                } label: {
+                                    Label("Clear All", systemImage: "trash")
+                                }
+                            }
+                        } label: {
+                            Label("Options", systemImage: "ellipsis.circle")
                         }
-                    } label: {
-                        Label("Options", systemImage: "ellipsis.circle")
                     }
                     .disabled(viewModel.groceryList == nil)
                 }
@@ -120,6 +185,30 @@ struct GroceryListView: View {
                     showDateRangePicker = false
                 }
             }
+            .sheet(isPresented: $showInstacartOrder) {
+                InstacartOrderView(viewModel: viewModel)
+            }
+            .sheet(item: $itemToEdit) { item in
+                GroceryItemEditView(
+                    item: item,
+                    ingredientPreference: IngredientPreferenceService.shared.findMatchingPreference(
+                        for: item.name,
+                        in: viewModel.ingredientPreferences
+                    ),
+                    onSave: { itemUpdate, prefUpdate in
+                        Task {
+                            await viewModel.updateItem(item, itemUpdate: itemUpdate, preferenceUpdate: prefUpdate)
+                        }
+                        itemToEdit = nil
+                    },
+                    onSubstitute: { newName in
+                        Task {
+                            await viewModel.substituteItem(item, with: newName)
+                        }
+                        itemToEdit = nil
+                    }
+                )
+            }
             .alert("Clear All Items?", isPresented: $showClearOptions) {
                 Button("Clear All", role: .destructive) {
                     Task {
@@ -139,11 +228,53 @@ struct GroceryListView: View {
                     Text(error)
                 }
             }
+            .confirmationDialog("Complete Shopping?", isPresented: $showCompleteConfirmation, titleVisibility: .visible) {
+                Button("Complete Shopping") {
+                    isCompletingShopping = true
+                    Task {
+                        await viewModel.completeShopping()
+                        isCompletingShopping = false
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This will mark your shopping as complete and update all planned meals for this week as having ingredients. You can always generate a new list if needed.")
+            }
+            .confirmationDialog("Regenerate List?", isPresented: $showRegenerateConfirmation, titleVisibility: .visible) {
+                Button("Keep Checked Items & Regenerate") {
+                    // Smart merge - preserves checked items
+                    pendingRegenerateAction?()
+                    pendingRegenerateAction = nil
+                }
+                Button("Cancel", role: .cancel) {
+                    pendingRegenerateAction = nil
+                }
+            } message: {
+                Text("You have \(viewModel.checkedCount) items already checked off. Regenerating will keep your purchased items and add any new items from your meal plan.")
+            }
         }
     }
 
     private var progressHeader: some View {
         VStack(spacing: 8) {
+            // Generation info
+            if let groceryList = viewModel.groceryList {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        if let dateRange = groceryList.formattedDateRange {
+                            Text(dateRange)
+                                .font(.headline)
+                        }
+                        if let generatedAt = groceryList.formattedGeneratedAt {
+                            Text("Generated \(generatedAt)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer()
+                }
+            }
+
             HStack {
                 Text("\(viewModel.checkedCount) of \(viewModel.totalCount) items")
                     .font(.subheadline)
@@ -158,6 +289,28 @@ struct GroceryListView: View {
 
             ProgressView(value: viewModel.progress)
                 .tint(.green)
+
+            // Show Complete Shopping button when all items are checked
+            if viewModel.progress == 1.0 && viewModel.totalCount > 0 {
+                Button {
+                    showCompleteConfirmation = true
+                } label: {
+                    HStack {
+                        if isCompletingShopping {
+                            ProgressView()
+                                .tint(.white)
+                        } else {
+                            Image(systemName: "checkmark.circle.fill")
+                            Text("Complete Shopping")
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.green)
+                .disabled(isCompletingShopping)
+                .padding(.top, 4)
+            }
         }
         .padding()
         .background(.bar)
@@ -233,6 +386,9 @@ struct GroceryListView: View {
                                     Task {
                                         await viewModel.deleteItem(item)
                                     }
+                                },
+                                onEdit: { item in
+                                    itemToEdit = item
                                 }
                             )
                         }

@@ -150,6 +150,33 @@ class MealPlanService {
             .execute()
     }
 
+    func addIngredient(to date: Date, mealType: MealPlanEntry.MealType, ingredientName: String, ingredientQuantity: String?, ingredientId: UUID?, householdId: UUID) async throws {
+        let entry = MealPlanEntry(
+            id: UUID(),
+            householdId: householdId,
+            recipeId: nil,
+            scheduledDate: date,
+            mealType: mealType,
+            servingsOverride: nil,
+            isEatOut: false,
+            eatOutLocation: nil,
+            restaurantId: nil,
+            orderIds: [],
+            isLeftovers: false,
+            leftoversNote: nil,
+            isIngredientOnly: true,
+            ingredientId: ingredientId,
+            ingredientName: ingredientName,
+            ingredientQuantity: ingredientQuantity,
+            createdAt: Date()
+        )
+
+        try await supabase
+            .from("meal_plan_entries")
+            .insert(entry)
+            .execute()
+    }
+
     func removeFromPlan(entryId: UUID) async throws {
         try await supabase
             .from("meal_plan_entries")
@@ -188,6 +215,37 @@ class MealPlanService {
             .execute()
     }
 
+    /// Reschedule a meal to a new date with optional hasIngredients flag
+    func rescheduleMeal(entryId: UUID, newDate: Date, newMealType: MealPlanEntry.MealType?, hasIngredients: Bool) async throws {
+        struct RescheduleUpdate: Encodable {
+            let date: String
+            let meal_type: String?
+            let has_ingredients: Bool
+        }
+        let dateStr = dateFormatter.string(from: newDate)
+        try await supabase
+            .from("meal_plan_entries")
+            .update(RescheduleUpdate(
+                date: dateStr,
+                meal_type: newMealType?.rawValue,
+                has_ingredients: hasIngredients
+            ))
+            .eq("id", value: entryId.uuidString)
+            .execute()
+    }
+
+    /// Toggle the hasIngredients flag on a meal entry
+    func toggleHasIngredients(entryId: UUID, hasIngredients: Bool) async throws {
+        struct HasIngredientsUpdate: Encodable {
+            let has_ingredients: Bool
+        }
+        try await supabase
+            .from("meal_plan_entries")
+            .update(HasIngredientsUpdate(has_ingredients: hasIngredients))
+            .eq("id", value: entryId.uuidString)
+            .execute()
+    }
+
     func entriesForDate(_ date: Date, in entries: [MealPlanEntry]) -> [MealPlanEntry] {
         entries.filter { Calendar.current.isDate($0.scheduledDate, inSameDayAs: date) }
             .sorted { $0.mealType.sortOrder < $1.mealType.sortOrder }
@@ -204,5 +262,50 @@ class MealPlanService {
         entries.filter {
             Calendar.current.isDate($0.scheduledDate, inSameDayAs: date) && $0.mealType == mealType
         }
+    }
+
+    // MARK: - Shopping Status
+
+    /// Mark all meals in a date range as shopped for
+    func markMealsAsShoppedFor(householdId: UUID, startDate: Date, endDate: Date) async throws {
+        let startStr = dateFormatter.string(from: startDate)
+        // Add 1 day to endDate to include it in the range
+        let endDatePlusOne = Calendar.current.date(byAdding: .day, value: 1, to: endDate) ?? endDate
+        let endStr = dateFormatter.string(from: endDatePlusOne)
+
+        struct ShoppedUpdate: Encodable {
+            let shopped_at: String
+        }
+
+        // Update all entries in the date range that need groceries (not eat out, not leftovers, not already have ingredients)
+        try await supabase
+            .from("meal_plan_entries")
+            .update(ShoppedUpdate(shopped_at: ISO8601DateFormatter().string(from: Date())))
+            .eq("household_id", value: householdId.uuidString)
+            .gte("date", value: startStr)
+            .lt("date", value: endStr)
+            .eq("is_eat_out", value: false)
+            .eq("is_leftovers", value: false)
+            .eq("has_ingredients", value: false)
+            .execute()
+    }
+
+    /// Clear the shopped_at status for entries in a date range (when regenerating list)
+    func clearShoppedStatus(householdId: UUID, startDate: Date, endDate: Date) async throws {
+        let startStr = dateFormatter.string(from: startDate)
+        let endDatePlusOne = Calendar.current.date(byAdding: .day, value: 1, to: endDate) ?? endDate
+        let endStr = dateFormatter.string(from: endDatePlusOne)
+
+        struct ClearShoppedUpdate: Encodable {
+            let shopped_at: String?
+        }
+
+        try await supabase
+            .from("meal_plan_entries")
+            .update(ClearShoppedUpdate(shopped_at: nil))
+            .eq("household_id", value: householdId.uuidString)
+            .gte("date", value: startStr)
+            .lt("date", value: endStr)
+            .execute()
     }
 }

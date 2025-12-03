@@ -185,4 +185,60 @@ class HouseholdSettingsService {
             .eq("household_id", value: householdId.uuidString)
             .execute()
     }
+
+    // MARK: - Week & Grocery Settings
+
+    func updateWeekSettings(
+        for householdId: UUID,
+        weekStartDay: Int,
+        groceryShoppingDay: Int
+    ) async throws {
+        struct WeekUpdate: Encodable {
+            let week_start_day: Int
+            let grocery_shopping_day: Int
+        }
+
+        try await supabase
+            .from("household_settings")
+            .update(WeekUpdate(week_start_day: weekStartDay, grocery_shopping_day: groceryShoppingDay))
+            .eq("household_id", value: householdId.uuidString)
+            .execute()
+    }
+
+    func updateInstacartSettings(
+        for householdId: UUID,
+        excludeNonInstacartStores: Bool,
+        excludeInPersonItems: Bool,
+        groupByStore: Bool
+    ) async throws {
+        struct InstacartUpdate: Encodable {
+            let exclude_non_instacart_stores: Bool
+            let exclude_in_person_items: Bool
+            let group_grocery_list_by_store: Bool
+        }
+
+        try await supabase
+            .from("household_settings")
+            .update(InstacartUpdate(
+                exclude_non_instacart_stores: excludeNonInstacartStores,
+                exclude_in_person_items: excludeInPersonItems,
+                group_grocery_list_by_store: groupByStore
+            ))
+            .eq("household_id", value: householdId.uuidString)
+            .execute()
+    }
+
+    // MARK: - Appearance
+
+    func updateDarkMode(for householdId: UUID, mode: HouseholdSettings.AppearanceMode) async throws {
+        struct AppearanceUpdate: Encodable {
+            let dark_mode: String
+        }
+
+        try await supabase
+            .from("household_settings")
+            .update(AppearanceUpdate(dark_mode: mode.rawValue))
+            .eq("household_id", value: householdId.uuidString)
+            .execute()
+    }
 }

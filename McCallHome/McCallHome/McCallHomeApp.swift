@@ -11,6 +11,7 @@ import Supabase
 @main
 struct McCallHomeApp: App {
     @StateObject private var authViewModel = AuthViewModel()
+    @StateObject private var appearanceManager = AppearanceManager.shared
     @State private var pendingInviteToken: String?
 
     var body: some Scene {
@@ -24,6 +25,7 @@ struct McCallHomeApp: App {
                         .environmentObject(authViewModel)
                 }
             }
+            .applyAppearance()
             .task {
                 if Config.skipAuthForDevelopment {
                     // Dev mode: skip auth, go straight to main app

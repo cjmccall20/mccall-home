@@ -20,7 +20,13 @@ struct MealPlanEntry: Codable, Identifiable, Equatable {
     var orderIds: [UUID]  // Selected order IDs for this eat-out meal
     var isLeftovers: Bool  // Indicates meal is leftovers from previous cooking
     var leftoversNote: String?  // Optional note about what leftovers
+    var isIngredientOnly: Bool  // Standalone ingredient (not a full recipe/dish)
+    var ingredientId: UUID?  // Reference to ingredient from ingredients table
+    var ingredientName: String?  // Name of ingredient (for display and quick entry)
+    var ingredientQuantity: String?  // Quantity needed (e.g., "2 boxes", "1 lb")
     var assignedTo: UUID?  // Household member responsible for cooking this meal
+    var hasIngredients: Bool  // User already has ingredients - skip in grocery generation
+    var shoppedAt: Date?  // When this meal was shopped for (nil = needs groceries)
     let createdAt: Date
 
     enum MealType: String, Codable, CaseIterable {
@@ -54,11 +60,17 @@ struct MealPlanEntry: Codable, Identifiable, Equatable {
         case orderIds = "order_ids"
         case isLeftovers = "is_leftovers"
         case leftoversNote = "leftovers_note"
+        case isIngredientOnly = "is_ingredient_only"
+        case ingredientId = "ingredient_id"
+        case ingredientName = "ingredient_name"
+        case ingredientQuantity = "ingredient_quantity"
         case assignedTo = "assigned_to"
+        case hasIngredients = "has_ingredients"
+        case shoppedAt = "shopped_at"
         case createdAt = "created_at"
     }
 
-    init(id: UUID, householdId: UUID, recipeId: UUID?, scheduledDate: Date, mealType: MealType = .dinner, servingsOverride: Int? = nil, isEatOut: Bool = false, eatOutLocation: String? = nil, restaurantId: UUID? = nil, orderIds: [UUID] = [], isLeftovers: Bool = false, leftoversNote: String? = nil, assignedTo: UUID? = nil, createdAt: Date) {
+    init(id: UUID, householdId: UUID, recipeId: UUID?, scheduledDate: Date, mealType: MealType = .dinner, servingsOverride: Int? = nil, isEatOut: Bool = false, eatOutLocation: String? = nil, restaurantId: UUID? = nil, orderIds: [UUID] = [], isLeftovers: Bool = false, leftoversNote: String? = nil, isIngredientOnly: Bool = false, ingredientId: UUID? = nil, ingredientName: String? = nil, ingredientQuantity: String? = nil, assignedTo: UUID? = nil, hasIngredients: Bool = false, shoppedAt: Date? = nil, createdAt: Date) {
         self.id = id
         self.householdId = householdId
         self.recipeId = recipeId
@@ -71,7 +83,13 @@ struct MealPlanEntry: Codable, Identifiable, Equatable {
         self.orderIds = orderIds
         self.isLeftovers = isLeftovers
         self.leftoversNote = leftoversNote
+        self.isIngredientOnly = isIngredientOnly
+        self.ingredientId = ingredientId
+        self.ingredientName = ingredientName
+        self.ingredientQuantity = ingredientQuantity
         self.assignedTo = assignedTo
+        self.hasIngredients = hasIngredients
+        self.shoppedAt = shoppedAt
         self.createdAt = createdAt
     }
 
@@ -108,7 +126,25 @@ struct MealPlanEntry: Codable, Identifiable, Equatable {
         orderIds = try container.decodeIfPresent([UUID].self, forKey: .orderIds) ?? []
         isLeftovers = try container.decodeIfPresent(Bool.self, forKey: .isLeftovers) ?? false
         leftoversNote = try container.decodeIfPresent(String.self, forKey: .leftoversNote)
+        isIngredientOnly = try container.decodeIfPresent(Bool.self, forKey: .isIngredientOnly) ?? false
+        ingredientId = try container.decodeIfPresent(UUID.self, forKey: .ingredientId)
+        ingredientName = try container.decodeIfPresent(String.self, forKey: .ingredientName)
+        ingredientQuantity = try container.decodeIfPresent(String.self, forKey: .ingredientQuantity)
         assignedTo = try container.decodeIfPresent(UUID.self, forKey: .assignedTo)
+        hasIngredients = try container.decodeIfPresent(Bool.self, forKey: .hasIngredients) ?? false
+
+        // Handle shoppedAt date - ISO8601 timestamp
+        if let dateString = try? container.decode(String.self, forKey: .shoppedAt) {
+            let isoFormatter = ISO8601DateFormatter()
+            isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = isoFormatter.date(from: dateString) {
+                shoppedAt = date
+            } else {
+                shoppedAt = ISO8601DateFormatter().date(from: dateString)
+            }
+        } else {
+            shoppedAt = try container.decodeIfPresent(Date.self, forKey: .shoppedAt)
+        }
 
         // Handle createdAt date - may have fractional seconds
         if let dateString = try? container.decode(String.self, forKey: .createdAt) {
@@ -146,7 +182,15 @@ struct MealPlanEntry: Codable, Identifiable, Equatable {
         try container.encode(orderIds, forKey: .orderIds)
         try container.encode(isLeftovers, forKey: .isLeftovers)
         try container.encodeIfPresent(leftoversNote, forKey: .leftoversNote)
+        try container.encode(isIngredientOnly, forKey: .isIngredientOnly)
+        try container.encodeIfPresent(ingredientId, forKey: .ingredientId)
+        try container.encodeIfPresent(ingredientName, forKey: .ingredientName)
+        try container.encodeIfPresent(ingredientQuantity, forKey: .ingredientQuantity)
         try container.encodeIfPresent(assignedTo, forKey: .assignedTo)
+        try container.encode(hasIngredients, forKey: .hasIngredients)
+        if let shoppedAt = shoppedAt {
+            try container.encode(ISO8601DateFormatter().string(from: shoppedAt), forKey: .shoppedAt)
+        }
         try container.encode(ISO8601DateFormatter().string(from: createdAt), forKey: .createdAt)
     }
 
@@ -157,4 +201,21 @@ struct MealPlanEntry: Codable, Identifiable, Equatable {
         formatter.timeZone = TimeZone.current
         return formatter
     }()
+
+    // MARK: - Computed Properties
+
+    /// Whether this entry needs grocery shopping (not yet shopped for and not marked as having ingredients)
+    var needsGroceries: Bool {
+        // Skip eat out, leftovers, and entries already marked as having ingredients
+        if isEatOut || isLeftovers || hasIngredients {
+            return false
+        }
+        // If shopped_at is set, they've already shopped for this
+        return shoppedAt == nil
+    }
+
+    /// Whether this entry has been shopped for
+    var hasBeenShoppedFor: Bool {
+        shoppedAt != nil || hasIngredients
+    }
 }

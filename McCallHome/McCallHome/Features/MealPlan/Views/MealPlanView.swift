@@ -14,6 +14,8 @@ struct MealPlanView: View {
     @State private var showMealPicker = false
     @State private var showMealDetail = false
     @State private var showError = false
+    @State private var showSaveTemplate = false
+    @State private var showBrowseTemplates = false
 
     var body: some View {
         NavigationStack {
@@ -37,6 +39,26 @@ struct MealPlanView: View {
             }
             .navigationTitle("Meal Plan")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Menu {
+                        Button {
+                            showBrowseTemplates = true
+                        } label: {
+                            Label("Browse Saved Weeks", systemImage: "calendar.badge.clock")
+                        }
+
+                        if !viewModel.entries.isEmpty {
+                            Button {
+                                showSaveTemplate = true
+                            } label: {
+                                Label("Save This Week", systemImage: "square.and.arrow.down")
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "calendar.badge.clock")
+                    }
+                }
+
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Today") {
                         viewModel.goToCurrentWeek()
@@ -59,6 +81,19 @@ struct MealPlanView: View {
                 if let date = selectedDate, let mealType = selectedMealType {
                     MealDetailView(viewModel: viewModel, date: date, mealType: mealType)
                 }
+            }
+            .sheet(isPresented: $showSaveTemplate) {
+                SaveTemplateSheet(mealPlanViewModel: viewModel)
+            }
+            .sheet(isPresented: $showBrowseTemplates) {
+                MealPlanTemplatesView(
+                    weekStart: viewModel.currentWeekStart,
+                    onApply: {
+                        Task {
+                            await viewModel.fetchMealPlan()
+                        }
+                    }
+                )
             }
             .alert("Error", isPresented: $showError) {
                 Button("OK") {

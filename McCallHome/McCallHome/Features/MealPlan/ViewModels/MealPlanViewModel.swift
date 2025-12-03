@@ -15,6 +15,7 @@ class MealPlanViewModel: ObservableObject {
     @Published var recipes: [Recipe] = []
     @Published var restaurants: [Restaurant] = []
     @Published var householdMembers: [HouseholdMember] = []
+    @Published var ingredients: [IngredientPreference] = []
     @Published var isLoading = false
     @Published var error: String?
 
@@ -22,6 +23,7 @@ class MealPlanViewModel: ObservableObject {
     private let recipeService = RecipeService.shared
     private let restaurantService = RestaurantService.shared
     private let householdMemberService = HouseholdMemberService.shared
+    private let ingredientPreferenceService = IngredientPreferenceService.shared
     private let authService = AuthService.shared
 
     var householdId: UUID? {
@@ -57,11 +59,13 @@ class MealPlanViewModel: ObservableObject {
             async let recipesTask = recipeService.fetchRecipes(for: householdId)
             async let restaurantsTask = restaurantService.fetchRestaurants(for: householdId)
             async let membersTask = householdMemberService.fetchMembers(for: householdId)
+            async let ingredientsTask = ingredientPreferenceService.fetchAllPreferences(for: householdId)
 
             entries = try await entriesTask
             recipes = try await recipesTask
             restaurants = try await restaurantsTask
             householdMembers = try await membersTask
+            ingredients = try await ingredientsTask
         } catch {
             self.error = error.localizedDescription
         }
@@ -226,6 +230,44 @@ class MealPlanViewModel: ObservableObject {
         }
     }
 
+    func addIngredient(to date: Date, mealType: MealPlanEntry.MealType, ingredientName: String, ingredientQuantity: String?, ingredientId: UUID? = nil) async {
+        guard let householdId = householdId else { return }
+
+        do {
+            var finalIngredientId = ingredientId
+
+            // If no ingredientId provided, check if this ingredient already exists or create it
+            if ingredientId == nil {
+                // Check if ingredient already exists in preferences
+                let normalizedName = ingredientPreferenceService.normalizeIngredientName(ingredientName)
+                if let existing = ingredientPreferenceService.findMatchingPreference(for: ingredientName, in: ingredients) {
+                    finalIngredientId = existing.id
+                } else {
+                    // Create new ingredient preference
+                    let newPreference = IngredientPreference(
+                        householdId: householdId,
+                        canonicalName: normalizedName,
+                        displayName: ingredientName
+                    )
+                    try await ingredientPreferenceService.createPreference(newPreference)
+                    finalIngredientId = newPreference.id
+                }
+            }
+
+            try await mealPlanService.addIngredient(
+                to: date,
+                mealType: mealType,
+                ingredientName: ingredientName,
+                ingredientQuantity: ingredientQuantity,
+                ingredientId: finalIngredientId,
+                householdId: householdId
+            )
+            await fetchMealPlan()
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
     func removeFromPlan(entry: MealPlanEntry) async {
         do {
             try await mealPlanService.removeFromPlan(entryId: entry.id)
@@ -244,6 +286,35 @@ class MealPlanViewModel: ObservableObject {
         do {
             try await mealPlanService.updateServings(entryId: entry.id, servings: servings)
             await fetchMealPlan()
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    /// Reschedule a meal entry to a new date
+    func rescheduleMeal(_ entry: MealPlanEntry, to newDate: Date, newMealType: MealPlanEntry.MealType?, hasIngredients: Bool) async {
+        do {
+            try await mealPlanService.rescheduleMeal(
+                entryId: entry.id,
+                newDate: newDate,
+                newMealType: newMealType,
+                hasIngredients: hasIngredients
+            )
+            await fetchMealPlan()
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    /// Toggle the hasIngredients flag for a meal entry
+    func toggleHasIngredients(for entry: MealPlanEntry) async {
+        do {
+            let newValue = !entry.hasIngredients
+            try await mealPlanService.toggleHasIngredients(entryId: entry.id, hasIngredients: newValue)
+            // Update local state
+            if let index = entries.firstIndex(where: { $0.id == entry.id }) {
+                entries[index].hasIngredients = newValue
+            }
         } catch {
             self.error = error.localizedDescription
         }
@@ -287,6 +358,14 @@ class MealPlanViewModel: ObservableObject {
                 return "Leftovers - \(note)"
             }
             return "Leftovers"
+        } else if entry.isIngredientOnly {
+            if let name = entry.ingredientName {
+                if let quantity = entry.ingredientQuantity, !quantity.isEmpty {
+                    return "\(name) (\(quantity))"
+                }
+                return name
+            }
+            return "Ingredient"
         } else if let recipe = recipe(for: entry) {
             return recipe.title
         }

@@ -193,10 +193,18 @@ struct DayPlanView: View {
             Image(systemName: "fork.knife")
                 .font(.caption)
                 .foregroundStyle(.orange)
-            Text(entry.eatOutLocation ?? "Eat Out")
-                .font(.caption)
-                .foregroundStyle(.primary)
-                .lineLimit(1)
+            // Show restaurant name if we have a restaurantId
+            if let restaurant = viewModel.restaurant(for: entry) {
+                Text(restaurant.name)
+                    .font(.caption)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+            } else {
+                Text(entry.eatOutLocation ?? "Eat Out")
+                    .font(.caption)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+            }
         } else if entry.isLeftovers {
             Image(systemName: "takeoutbag.and.cup.and.straw")
                 .font(.caption)
@@ -205,6 +213,26 @@ struct DayPlanView: View {
                 .font(.caption)
                 .foregroundStyle(.primary)
                 .lineLimit(1)
+        } else if entry.isIngredientOnly {
+            Image(systemName: "carrot")
+                .font(.caption)
+                .foregroundStyle(.purple)
+            if let name = entry.ingredientName, !name.isEmpty {
+                Text(name)
+                    .font(.caption)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                if let quantity = entry.ingredientQuantity, !quantity.isEmpty {
+                    Text("(\(quantity))")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                Text("Ingredient")
+                    .font(.caption)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+            }
         } else if let recipe = viewModel.recipe(for: entry) {
             // Show dish category icon for recipes
             Image(systemName: recipe.dishCategory.iconName)

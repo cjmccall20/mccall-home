@@ -14,11 +14,20 @@ enum Config {
     // Google Calendar (for later)
     static let googleClientID = "243332420634-da474f55hp2hn68vkbvfbnjg9r0is1j2.apps.googleusercontent.com"
 
+    // Instacart Developer Platform API Key
+    // Sign up at: https://www.instacart.com/company/business/developers
+    static let instacartAPIKey: String? = nil  // TODO: Add your Instacart API key
+
     // MARK: - Development Mode
-    // Set to true to skip authentication and use a dev household
+    // Set to true to auto-sign-in with dev credentials (no manual login needed)
     static let skipAuthForDevelopment = true
 
-    // Fixed UUIDs for development mode (these get created in DB if they don't exist)
+    // Dev account credentials - auto signs in so RLS policies work
+    // Use your real Supabase account here
+    static let devEmail = "fmcjmccall12@gmail.com"
+    static let devPassword = Secrets.devPassword  // Set in Secrets.swift (gitignored)
+
+    // Fallback UUIDs if auto-sign-in fails
     static let devHouseholdId = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
     static let devUserId = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
 }

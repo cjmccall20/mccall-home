@@ -39,11 +39,11 @@ struct RecipeDetailView: View {
                         .fontWeight(.bold)
 
                     HStack(spacing: 16) {
-                        if let prepTime = recipe.prepTime {
-                            Label("\(prepTime)m", systemImage: "clock")
+                        if let prepTime = recipe.formattedPrepTime {
+                            Label(prepTime, systemImage: "clock")
                         }
-                        if let cookTime = recipe.cookTime {
-                            Label("\(cookTime)m", systemImage: "flame")
+                        if let cookTime = recipe.formattedCookTime {
+                            Label(cookTime, systemImage: "flame")
                         }
                     }
                     .font(.subheadline)
@@ -177,28 +177,42 @@ struct RecipeDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button {
-                        showEditSheet = true
-                    } label: {
-                        Label("Edit Recipe", systemImage: "pencil")
-                    }
-
-                    if let url = recipe.sourceUrl, let sourceUrl = URL(string: url) {
-                        Link(destination: sourceUrl) {
-                            Label("View Source", systemImage: "safari")
+                HStack(spacing: 16) {
+                    // Favorite button
+                    if let memberId = viewModel.currentMemberId {
+                        Button {
+                            Task {
+                                await viewModel.toggleFavorite(recipeId: recipe.id, memberId: memberId)
+                            }
+                        } label: {
+                            Image(systemName: viewModel.isFavorite(recipeId: recipe.id, memberId: memberId) ? "heart.fill" : "heart")
+                                .foregroundStyle(viewModel.isFavorite(recipeId: recipe.id, memberId: memberId) ? .pink : .secondary)
                         }
                     }
 
-                    Divider()
+                    Menu {
+                        Button {
+                            showEditSheet = true
+                        } label: {
+                            Label("Edit Recipe", systemImage: "pencil")
+                        }
 
-                    Button(role: .destructive) {
-                        showDeleteConfirmation = true
+                        if let url = recipe.sourceUrl, let sourceUrl = URL(string: url) {
+                            Link(destination: sourceUrl) {
+                                Label("View Source", systemImage: "safari")
+                            }
+                        }
+
+                        Divider()
+
+                        Button(role: .destructive) {
+                            showDeleteConfirmation = true
+                        } label: {
+                            Label("Delete Recipe", systemImage: "trash")
+                        }
                     } label: {
-                        Label("Delete Recipe", systemImage: "trash")
+                        Image(systemName: "ellipsis.circle")
                     }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
                 }
             }
         }
@@ -280,47 +294,7 @@ struct NotesEditorView: View {
     }
 }
 
-// Simple flow layout for tags
-struct FlowLayout: Layout {
-    var spacing: CGFloat = 8
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let result = layout(proposal: proposal, subviews: subviews)
-        return result.size
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let result = layout(proposal: proposal, subviews: subviews)
-        for (index, frame) in result.frames.enumerated() {
-            subviews[index].place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY), proposal: .unspecified)
-        }
-    }
-
-    private func layout(proposal: ProposedViewSize, subviews: Subviews) -> (size: CGSize, frames: [CGRect]) {
-        var frames: [CGRect] = []
-        var currentX: CGFloat = 0
-        var currentY: CGFloat = 0
-        var lineHeight: CGFloat = 0
-        let maxWidth = proposal.width ?? .infinity
-
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-
-            if currentX + size.width > maxWidth && currentX > 0 {
-                currentX = 0
-                currentY += lineHeight + spacing
-                lineHeight = 0
-            }
-
-            frames.append(CGRect(x: currentX, y: currentY, width: size.width, height: size.height))
-            currentX += size.width + spacing
-            lineHeight = max(lineHeight, size.height)
-        }
-
-        let totalHeight = currentY + lineHeight
-        return (CGSize(width: maxWidth, height: totalHeight), frames)
-    }
-}
+// FlowLayout moved to Shared/Components/FlowLayout.swift
 
 #Preview {
     NavigationStack {

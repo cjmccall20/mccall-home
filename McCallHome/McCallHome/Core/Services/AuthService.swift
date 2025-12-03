@@ -26,54 +26,27 @@ class AuthService: ObservableObject {
 
     // MARK: - Development Mode
 
-    /// Set up dev mode with a test household (no real auth required)
-    /// Note: profiles table requires auth.users FK, so we skip profile creation
-    /// and make created_by nullable in tasks model instead
+    /// Set up dev mode - auto sign-in with dev credentials so RLS works
     func setupDevMode() async {
         guard Config.skipAuthForDevelopment else { return }
 
         do {
-            // Ensure dev household exists in DB
-            let households: [Household] = try await supabase
-                .from("households")
-                .select()
-                .eq("id", value: Config.devHouseholdId.uuidString)
-                .execute()
-                .value
-
-            if households.isEmpty {
-                // Create dev household
-                let devHousehold = Household(
-                    id: Config.devHouseholdId,
-                    name: "Dev Household",
-                    createdAt: Date()
-                )
-                try await supabase
-                    .from("households")
-                    .insert(devHousehold)
-                    .execute()
-                print("✅ Created dev household")
-            }
-
-            // Set the current user (profile not stored in DB due to auth.users FK constraint)
-            currentUser = User(
-                id: Config.devUserId,
-                householdId: Config.devHouseholdId,
-                name: "Dev User",
-                email: "dev@test.com",
-                notificationTimes: nil,
-                deviceToken: nil,
-                createdAt: Date()
+            // Try to sign in with dev credentials (creates session so auth.uid() works)
+            try await supabase.auth.signIn(
+                email: Config.devEmail,
+                password: Config.devPassword
             )
-            isAuthenticated = true
-            print("✅ Dev mode enabled with household: \(Config.devHouseholdId)")
+            try await fetchCurrentUser()
+            print("✅ Dev mode: signed in as \(currentUser?.email ?? "unknown")")
         } catch {
-            print("❌ Failed to setup dev mode: \(error)")
-            // Even if DB setup fails, we can still use local dev user for UI testing
+            print("⚠️ Dev auto-sign-in failed: \(error)")
+            print("💡 Make sure Config.devEmail and Config.devPassword are set to a real account")
+
+            // Fallback to local-only mode (RLS won't work but UI will)
             currentUser = User(
                 id: Config.devUserId,
                 householdId: Config.devHouseholdId,
-                name: "Dev User",
+                name: "Dev User (offline)",
                 email: "dev@test.com",
                 notificationTimes: nil,
                 deviceToken: nil,

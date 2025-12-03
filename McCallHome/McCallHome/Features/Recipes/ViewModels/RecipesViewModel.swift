@@ -11,10 +11,14 @@ import Combine
 @MainActor
 class RecipesViewModel: ObservableObject {
     @Published var recipes: [Recipe] = []
+    @Published var ratings: [RecipeRating] = []
+    @Published var householdMembers: [HouseholdMember] = []
     @Published var searchText = ""
     @Published var isLoading = false
     @Published var error: String?
     @Published var selectedProteinFilter: Recipe.ProteinType?
+    @Published var showFavoritesOnly = false
+    @Published var selectedMemberFilter: UUID?  // For filtering by who favorited
 
     // Scraper state
     @Published var isScraping = false
@@ -22,6 +26,8 @@ class RecipesViewModel: ObservableObject {
     @Published var scraperError: String?
 
     private let recipeService = RecipeService.shared
+    private let ratingService = RecipeRatingService.shared
+    private let householdMemberService = HouseholdMemberService.shared
     private let authService = AuthService.shared
 
     var filteredRecipes: [Recipe] {
@@ -40,6 +46,19 @@ class RecipesViewModel: ObservableObject {
             result = result.filter { $0.proteinType == proteinFilter }
         }
 
+        // Filter by favorites
+        if showFavoritesOnly {
+            let favoriteIds: Set<UUID>
+            if let memberId = selectedMemberFilter {
+                // Show only this member's favorites
+                favoriteIds = Set(ratingService.getFavoriteRecipeIds(memberId: memberId, ratings: ratings))
+            } else {
+                // Show all household favorites
+                favoriteIds = Set(ratings.filter { $0.isFavorite }.map { $0.recipeId })
+            }
+            result = result.filter { favoriteIds.contains($0.id) }
+        }
+
         return result
     }
 
@@ -51,6 +70,37 @@ class RecipesViewModel: ObservableObject {
         authService.currentUser?.householdId
     }
 
+    /// Get the current user's household member ID by matching name
+    var currentMemberId: UUID? {
+        guard let userName = authService.currentUser?.name else { return nil }
+
+        // Try exact match first
+        if let member = householdMembers.first(where: { $0.name == userName }) {
+            return member.id
+        }
+
+        // Try case-insensitive match
+        if let member = householdMembers.first(where: { $0.name.lowercased() == userName.lowercased() }) {
+            return member.id
+        }
+
+        // Try matching first name only
+        let firstName = userName.split(separator: " ").first.map(String.init) ?? userName
+        if let member = householdMembers.first(where: {
+            $0.name.lowercased() == firstName.lowercased() ||
+            $0.name.lowercased().hasPrefix(firstName.lowercased())
+        }) {
+            return member.id
+        }
+
+        // Fallback: return first member if only one exists
+        if householdMembers.count == 1 {
+            return householdMembers.first?.id
+        }
+
+        return nil
+    }
+
     func fetchRecipes() async {
         guard let householdId = householdId else { return }
 
@@ -58,12 +108,82 @@ class RecipesViewModel: ObservableObject {
         error = nil
 
         do {
-            recipes = try await recipeService.fetchRecipes(for: householdId)
+            async let recipesTask = recipeService.fetchRecipes(for: householdId)
+            async let ratingsTask = ratingService.fetchRatings(for: householdId)
+            async let membersTask = householdMemberService.fetchMembers(for: householdId)
+
+            recipes = try await recipesTask
+            ratings = try await ratingsTask
+            householdMembers = try await membersTask
         } catch {
             self.error = error.localizedDescription
         }
 
         isLoading = false
+    }
+
+    // MARK: - Rating Functions
+
+    /// Get rating info for a recipe (for current member if memberId provided)
+    func getRating(for recipeId: UUID, memberId: UUID?) -> RecipeRating? {
+        guard let memberId = memberId else { return nil }
+        return ratingService.getMemberRating(recipeId: recipeId, memberId: memberId, ratings: ratings)
+    }
+
+    /// Get aggregate rating for a recipe
+    func getAggregate(for recipeId: UUID) -> RecipeRatingAggregate {
+        ratingService.getAggregate(for: recipeId, ratings: ratings)
+    }
+
+    /// Check if a recipe is favorited by a member
+    func isFavorite(recipeId: UUID, memberId: UUID?) -> Bool {
+        guard let memberId = memberId else { return false }
+        return ratingService.getMemberRating(recipeId: recipeId, memberId: memberId, ratings: ratings)?.isFavorite ?? false
+    }
+
+    /// Toggle favorite status
+    func toggleFavorite(recipeId: UUID, memberId: UUID) async {
+        guard let householdId = householdId else { return }
+
+        do {
+            let updated = try await ratingService.toggleFavorite(
+                recipeId: recipeId,
+                memberId: memberId,
+                householdId: householdId
+            )
+
+            // Update local state
+            if let index = ratings.firstIndex(where: { $0.id == updated.id }) {
+                ratings[index] = updated
+            } else {
+                ratings.append(updated)
+            }
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    /// Set rating for a recipe
+    func setRating(recipeId: UUID, memberId: UUID, rating: Int) async {
+        guard let householdId = householdId else { return }
+
+        do {
+            let updated = try await ratingService.setRating(
+                recipeId: recipeId,
+                memberId: memberId,
+                householdId: householdId,
+                rating: rating
+            )
+
+            // Update local state
+            if let index = ratings.firstIndex(where: { $0.id == updated.id }) {
+                ratings[index] = updated
+            } else {
+                ratings.append(updated)
+            }
+        } catch {
+            self.error = error.localizedDescription
+        }
     }
 
     func createRecipe(_ recipe: Recipe) async {

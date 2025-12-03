@@ -16,6 +16,7 @@ struct MealDetailView: View {
 
     @State private var showAddDish = false
     @State private var selectedRecipe: Recipe?
+    @State private var entryToReschedule: MealPlanEntry?
 
     var entries: [MealPlanEntry] {
         viewModel.entries(for: date, mealType: mealType)
@@ -38,7 +39,7 @@ struct MealDetailView: View {
                     Text("Dishes")
                 } footer: {
                     if !entries.isEmpty {
-                        Text("Swipe left to remove a dish")
+                        Text("Swipe left to remove, swipe right to toggle groceries status")
                     }
                 }
 
@@ -52,6 +53,26 @@ struct MealDetailView: View {
                                 .foregroundStyle(.blue)
                             Text("Add Dish")
                                 .foregroundStyle(.primary)
+                        }
+                    }
+
+                    // Reschedule option (only show when there are entries)
+                    if !entries.isEmpty {
+                        Menu {
+                            ForEach(entries) { entry in
+                                Button {
+                                    entryToReschedule = entry
+                                } label: {
+                                    Text(viewModel.displayText(for: entry))
+                                }
+                            }
+                        } label: {
+                            HStack {
+                                Image(systemName: "calendar.badge.clock")
+                                    .foregroundStyle(.blue)
+                                Text("Reschedule Dish")
+                                    .foregroundStyle(.primary)
+                            }
                         }
                     }
                 }
@@ -80,6 +101,27 @@ struct MealDetailView: View {
                         }
                 }
             }
+            .sheet(item: $entryToReschedule) { entry in
+                RescheduleMealSheet(
+                    entry: entry,
+                    viewModel: viewModel
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func groceryStatusIcon(for entry: MealPlanEntry) -> some View {
+        if entry.hasIngredients || entry.shoppedAt != nil {
+            // Has ingredients or already shopped
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+                .font(.caption)
+        } else {
+            // Needs groceries
+            Image(systemName: "cart.fill")
+                .foregroundStyle(.orange)
+                .font(.caption)
         }
     }
 
@@ -110,6 +152,20 @@ struct MealDetailView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+            } else if entry.isIngredientOnly {
+                Image(systemName: "carrot")
+                    .foregroundStyle(.purple)
+                VStack(alignment: .leading) {
+                    Text(entry.ingredientName ?? "Ingredient")
+                        .font(.body)
+                    if let quantity = entry.ingredientQuantity, !quantity.isEmpty {
+                        Text(quantity)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+                groceryStatusIcon(for: entry)
             } else if let recipe = viewModel.recipe(for: entry) {
                 Image(systemName: recipe.dishCategory.iconName)
                     .foregroundStyle(.blue)
@@ -123,6 +179,7 @@ struct MealDetailView: View {
                     }
                 }
                 Spacer()
+                groceryStatusIcon(for: entry)
                 Image(systemName: "chevron.right")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -142,6 +199,114 @@ struct MealDetailView: View {
             } label: {
                 Label("Remove", systemImage: "trash")
             }
+        }
+        .swipeActions(edge: .leading) {
+            Button {
+                Task {
+                    await viewModel.toggleHasIngredients(for: entry)
+                }
+            } label: {
+                Label(
+                    entry.hasIngredients ? "Need Groceries" : "Have Ingredients",
+                    systemImage: entry.hasIngredients ? "cart.badge.minus" : "checkmark.circle"
+                )
+            }
+            .tint(entry.hasIngredients ? .orange : .green)
+        }
+    }
+}
+
+// MARK: - Reschedule Meal Sheet
+
+struct RescheduleMealSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let entry: MealPlanEntry
+    @ObservedObject var viewModel: MealPlanViewModel
+
+    @State private var newDate: Date
+    @State private var newMealType: MealPlanEntry.MealType
+    @State private var hasIngredients: Bool
+    @State private var isRescheduling = false
+
+    init(entry: MealPlanEntry, viewModel: MealPlanViewModel) {
+        self.entry = entry
+        self.viewModel = viewModel
+        _newDate = State(initialValue: entry.scheduledDate)
+        _newMealType = State(initialValue: entry.mealType)
+        _hasIngredients = State(initialValue: entry.hasIngredients)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    // Show what meal we're rescheduling
+                    HStack {
+                        Text("Meal")
+                        Spacer()
+                        Text(viewModel.displayText(for: entry))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Section("New Date & Time") {
+                    DatePicker(
+                        "Date",
+                        selection: $newDate,
+                        displayedComponents: .date
+                    )
+
+                    Picker("Meal", selection: $newMealType) {
+                        ForEach(MealPlanEntry.MealType.allCases, id: \.self) { type in
+                            Text(type.displayName).tag(type)
+                        }
+                    }
+                }
+
+                Section {
+                    Toggle(isOn: $hasIngredients) {
+                        VStack(alignment: .leading) {
+                            Text("I already have the ingredients")
+                            Text("Skip adding to grocery list")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } footer: {
+                    Text("Enable this if you already have all the ingredients for this meal and don't need them added to your grocery list.")
+                }
+            }
+            .navigationTitle("Reschedule Meal")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Save") {
+                        reschedule()
+                    }
+                    .disabled(isRescheduling)
+                    .fontWeight(.semibold)
+                }
+            }
+        }
+        .presentationDetents([.medium])
+        .interactiveDismissDisabled(isRescheduling)
+    }
+
+    private func reschedule() {
+        isRescheduling = true
+        Task {
+            await viewModel.rescheduleMeal(
+                entry,
+                to: newDate,
+                newMealType: newMealType != entry.mealType ? newMealType : nil,
+                hasIngredients: hasIngredients
+            )
+            dismiss()
         }
     }
 }

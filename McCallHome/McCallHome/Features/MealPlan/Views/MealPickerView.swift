@@ -17,12 +17,20 @@ struct MealPickerView: View {
     @State private var searchText = ""
     @State private var showEatOutSheet = false
     @State private var showLeftoversSheet = false
+    @State private var showIngredientSheet = false
     @State private var selectedRecipe: Recipe?
     @State private var showServingsSheet = false
     @State private var showAllRecipes = false
+    @State private var selectedDishCategory: Recipe.DishCategory?
 
     // Track if we should dismiss after a child sheet closes
     @State private var pendingDismiss = false
+
+    // Available dish categories that have recipes
+    var availableDishCategories: [Recipe.DishCategory] {
+        let categories = Set(recipesForMealType.map { $0.dishCategory })
+        return Recipe.DishCategory.allCases.filter { categories.contains($0) }
+    }
 
     // Recipes that match the meal category (breakfast/lunch/dinner)
     var recipesForMealType: [Recipe] {
@@ -32,12 +40,20 @@ struct MealPickerView: View {
         return viewModel.recipes.filter { $0.mealCategory.matches(mealType) }
     }
 
+    // Filter by dish category
+    var recipesForDishCategory: [Recipe] {
+        guard let category = selectedDishCategory else {
+            return recipesForMealType
+        }
+        return recipesForMealType.filter { $0.dishCategory == category }
+    }
+
     // Further filter by search text
     var filteredRecipes: [Recipe] {
         if searchText.isEmpty {
-            return recipesForMealType
+            return recipesForDishCategory
         }
-        return recipesForMealType.filter { recipe in
+        return recipesForDishCategory.filter { recipe in
             recipe.title.localizedCaseInsensitiveContains(searchText)
         }
     }
@@ -80,6 +96,32 @@ struct MealPickerView: View {
                 .padding(.horizontal)
                 .padding(.vertical, 8)
 
+                // Dish category filter
+                if availableDishCategories.count > 1 {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            // "All" chip
+                            DishCategoryChip(
+                                title: "All",
+                                icon: "square.grid.2x2",
+                                isSelected: selectedDishCategory == nil,
+                                action: { selectedDishCategory = nil }
+                            )
+
+                            ForEach(availableDishCategories, id: \.self) { category in
+                                DishCategoryChip(
+                                    title: category.displayName,
+                                    icon: category.iconName,
+                                    isSelected: selectedDishCategory == category,
+                                    action: { selectedDishCategory = category }
+                                )
+                            }
+                        }
+                        .padding(.horizontal)
+                    }
+                    .padding(.bottom, 8)
+                }
+
                 List {
                     // Quick options (Eat Out, Leftovers)
                     Section {
@@ -112,6 +154,23 @@ struct MealPickerView: View {
                                     .foregroundStyle(.secondary)
                             }
                         }
+
+                        Button {
+                            showIngredientSheet = true
+                        } label: {
+                            HStack {
+                                Image(systemName: "carrot")
+                                    .foregroundStyle(.purple)
+                                Text("Add Ingredient")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    } footer: {
+                        Text("Use 'Add Ingredient' for standalone items like snacks, pre-packaged foods, or extras")
                     }
 
                     // Recipes grouped by protein type
@@ -197,6 +256,11 @@ struct MealPickerView: View {
                     pendingDismiss = true
                 }
             }
+            .sheet(isPresented: $showIngredientSheet) {
+                AddIngredientSheet(date: date, mealType: mealType, viewModel: viewModel) {
+                    pendingDismiss = true
+                }
+            }
             .sheet(isPresented: $showServingsSheet) {
                 if let recipe = selectedRecipe {
                     ServingsSheet(recipe: recipe, date: date, mealType: mealType, viewModel: viewModel) {
@@ -212,6 +276,12 @@ struct MealPickerView: View {
                 }
             }
             .onChange(of: showLeftoversSheet) { _, isShowing in
+                if !isShowing && pendingDismiss {
+                    pendingDismiss = false
+                    dismiss()
+                }
+            }
+            .onChange(of: showIngredientSheet) { _, isShowing in
                 if !isShowing && pendingDismiss {
                     pendingDismiss = false
                     dismiss()
@@ -1085,6 +1155,133 @@ struct ServingsSheet: View {
     }
 }
 
+// MARK: - Add Ingredient Sheet
+
+struct AddIngredientSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let date: Date
+    let mealType: MealPlanEntry.MealType
+    @ObservedObject var viewModel: MealPlanViewModel
+
+    let onComplete: () -> Void
+
+    @State private var ingredientName = ""
+    @State private var quantity = ""
+    @State private var searchText = ""
+    @State private var showExistingIngredients = true
+    @State private var isAdding = false
+
+    // Fetch ingredients from the view model
+    var filteredIngredients: [IngredientPreference] {
+        if searchText.isEmpty {
+            return viewModel.ingredients
+        }
+        return viewModel.ingredients.filter { $0.canonicalName.localizedCaseInsensitiveContains(searchText) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                // Quick add section
+                Section {
+                    TextField("Ingredient name", text: $ingredientName)
+                    TextField("Quantity (e.g., 2 boxes, 1 lb)", text: $quantity)
+
+                    Button {
+                        addIngredient(name: ingredientName, quantity: quantity.isEmpty ? nil : quantity)
+                    } label: {
+                        HStack {
+                            Image(systemName: "plus.circle.fill")
+                                .foregroundStyle(.blue)
+                            Text("Add to Meal Plan")
+                                .foregroundStyle(.blue)
+                        }
+                    }
+                    .disabled(ingredientName.isEmpty || isAdding)
+                } header: {
+                    Text("Quick Add")
+                } footer: {
+                    Text("Enter any ingredient, snack, or pre-packaged item")
+                }
+
+                // Select from existing ingredients
+                Section {
+                    Toggle("Show saved ingredients", isOn: $showExistingIngredients)
+
+                    if showExistingIngredients {
+                        if viewModel.ingredients.isEmpty {
+                            Text("No saved ingredients yet")
+                                .foregroundStyle(.secondary)
+                                .font(.subheadline)
+                        } else {
+                            TextField("Search ingredients", text: $searchText)
+
+                            ForEach(filteredIngredients.prefix(10)) { ingredient in
+                                Button {
+                                    addIngredient(
+                                        name: ingredient.effectiveDisplayName,
+                                        quantity: nil,
+                                        ingredientId: ingredient.id
+                                    )
+                                } label: {
+                                    HStack {
+                                        Text(ingredient.effectiveDisplayName)
+                                            .foregroundStyle(.primary)
+                                        Spacer()
+                                        if let store = ingredient.preferredStore {
+                                            Text(store.displayName)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        Image(systemName: "plus.circle")
+                                            .foregroundStyle(.blue)
+                                    }
+                                }
+                            }
+
+                            if filteredIngredients.count > 10 {
+                                Text("\(filteredIngredients.count - 10) more...")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Or Select Existing")
+                }
+            }
+            .listStyle(.insetGrouped)
+            .navigationTitle("Add Ingredient")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .interactiveDismissDisabled(isAdding)
+    }
+
+    private func addIngredient(name: String, quantity: String?, ingredientId: UUID? = nil) {
+        guard !isAdding else { return }
+        isAdding = true
+        Task {
+            await viewModel.addIngredient(
+                to: date,
+                mealType: mealType,
+                ingredientName: name,
+                ingredientQuantity: quantity,
+                ingredientId: ingredientId
+            )
+            dismiss()
+            onComplete()
+        }
+    }
+}
+
 // MARK: - Date Extension
 
 extension Date {
@@ -1092,6 +1289,32 @@ extension Date {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMM d"
         return formatter.string(from: self)
+    }
+}
+
+// MARK: - Dish Category Chip
+
+struct DishCategoryChip: View {
+    let title: String
+    let icon: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.caption)
+                Text(title)
+                    .font(.subheadline)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(isSelected ? Color.accentColor : Color(.secondarySystemBackground))
+            .foregroundStyle(isSelected ? .white : .primary)
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 }
 

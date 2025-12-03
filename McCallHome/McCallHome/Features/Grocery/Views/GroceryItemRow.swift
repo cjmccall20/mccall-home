@@ -12,6 +12,7 @@ struct GroceryItemRow: View {
     var ingredientPreference: IngredientPreference?
     let onToggle: () -> Void
     let onDelete: () -> Void
+    var onEdit: (() -> Void)?
 
     /// Display name - uses preference display name if available, otherwise item name
     var displayName: String {
@@ -79,6 +80,20 @@ struct GroceryItemRow: View {
 
             Spacer()
 
+            // Edit button (chevron)
+            if let onEdit = onEdit, !item.isChecked {
+                Button {
+                    onEdit()
+                } label: {
+                    Image(systemName: "chevron.right")
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+
             // Delete button
             Button {
                 onDelete()
@@ -86,6 +101,8 @@ struct GroceryItemRow: View {
                 Image(systemName: "trash")
                     .font(.subheadline)
                     .foregroundStyle(.red.opacity(0.7))
+                    .frame(width: 32, height: 32)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
         }

@@ -12,6 +12,8 @@ struct HouseholdMembersView: View {
     @StateObject private var viewModel = HouseholdMembersViewModel()
     @State private var showAddMember = false
     @State private var memberToEdit: HouseholdMember?
+    @State private var memberToTransfer: HouseholdMember?
+    @State private var showTransferConfirmation = false
 
     var body: some View {
         List {
@@ -19,17 +21,30 @@ struct HouseholdMembersView: View {
                 ForEach(viewModel.members) { member in
                     HStack {
                         Circle()
-                            .fill(Color.blue.opacity(0.2))
+                            .fill(member.isOwner ? Color.orange.opacity(0.2) : Color.blue.opacity(0.2))
                             .frame(width: 40, height: 40)
                             .overlay(
                                 Text(member.initial)
                                     .font(.headline)
-                                    .foregroundStyle(.blue)
+                                    .foregroundStyle(member.isOwner ? .orange : .blue)
                             )
 
                         VStack(alignment: .leading) {
-                            Text(member.name)
-                                .font(.headline)
+                            HStack(spacing: 6) {
+                                Text(member.name)
+                                    .font(.headline)
+
+                                if member.isOwner {
+                                    Text("Owner")
+                                        .font(.caption2)
+                                        .fontWeight(.medium)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(Color.orange.opacity(0.2))
+                                        .foregroundStyle(.orange)
+                                        .clipShape(Capsule())
+                                }
+                            }
                             if let email = member.email, !email.isEmpty {
                                 Text(email)
                                     .font(.caption)
@@ -44,19 +59,38 @@ struct HouseholdMembersView: View {
                         memberToEdit = member
                     }
                     .swipeActions(edge: .trailing) {
-                        Button(role: .destructive) {
-                            Task {
-                                await viewModel.deleteMember(member)
+                        // Only allow deletion if not owner
+                        if !member.isOwner {
+                            Button(role: .destructive) {
+                                Task {
+                                    await viewModel.deleteMember(member)
+                                }
+                            } label: {
+                                Label("Delete", systemImage: "trash")
                             }
-                        } label: {
-                            Label("Delete", systemImage: "trash")
+                        }
+                    }
+                    .swipeActions(edge: .leading) {
+                        // Allow transfer ownership if current user is owner and this isn't the owner
+                        if viewModel.currentUserIsOwner && !member.isOwner {
+                            Button {
+                                memberToTransfer = member
+                                showTransferConfirmation = true
+                            } label: {
+                                Label("Make Owner", systemImage: "crown")
+                            }
+                            .tint(.orange)
                         }
                     }
                 }
             } header: {
                 Text("Members")
             } footer: {
-                Text("Household members can be assigned to tasks and restaurant orders.")
+                if viewModel.currentUserIsOwner {
+                    Text("Swipe left to delete members. Swipe right to transfer ownership.")
+                } else {
+                    Text("Household members can be assigned to tasks and restaurant orders.")
+                }
             }
         }
         .navigationTitle("Household")
@@ -81,6 +115,15 @@ struct HouseholdMembersView: View {
             AddEditMemberView(viewModel: viewModel, member: member) {
                 memberToEdit = nil
             }
+        }
+        .confirmationDialog("Transfer Ownership", isPresented: $showTransferConfirmation, presenting: memberToTransfer) { member in
+            Button("Transfer to \(member.name)", role: .destructive) {
+                Task {
+                    await viewModel.transferOwnership(to: member)
+                }
+            }
+        } message: { member in
+            Text("Are you sure you want to make \(member.name) the household owner? You will no longer be able to delete accounts or transfer ownership.")
         }
         .alert("Error", isPresented: .constant(viewModel.error != nil)) {
             Button("OK") {
@@ -181,6 +224,20 @@ class HouseholdMembersViewModel: ObservableObject {
         authService.currentUser?.householdId
     }
 
+    var currentUserIsOwner: Bool {
+        // In dev mode, always return true for testing
+        if Config.skipAuthForDevelopment {
+            return true
+        }
+        // Check if current user matches an owner member
+        guard let currentUserName = authService.currentUser?.name else { return false }
+        return members.first { $0.name == currentUserName }?.isOwner ?? false
+    }
+
+    var ownerMember: HouseholdMember? {
+        members.first { $0.isOwner }
+    }
+
     func fetchMembers() async {
         guard let householdId = householdId else { return }
 
@@ -218,9 +275,30 @@ class HouseholdMembersViewModel: ObservableObject {
     }
 
     func deleteMember(_ member: HouseholdMember) async {
+        // Prevent deleting the owner
+        guard !member.isOwner else {
+            self.error = "Cannot delete the household owner"
+            return
+        }
+
         do {
             try await service.deleteMember(member)
             members.removeAll { $0.id == member.id }
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func transferOwnership(to newOwner: HouseholdMember) async {
+        guard let householdId = householdId else { return }
+
+        do {
+            try await service.transferOwnership(to: newOwner.id, householdId: householdId)
+
+            // Update local state
+            for i in members.indices {
+                members[i].isOwner = (members[i].id == newOwner.id)
+            }
         } catch {
             self.error = error.localizedDescription
         }

@@ -13,6 +13,7 @@ struct GrocerySectionView: View {
     var ingredientPreferences: [IngredientPreference]
     let onToggle: (GroceryItem) -> Void
     let onDelete: (GroceryItem) -> Void
+    var onEdit: ((GroceryItem) -> Void)?
 
     @State private var isExpanded = true
 
@@ -64,7 +65,8 @@ struct GrocerySectionView: View {
                         item: item,
                         ingredientPreference: preferenceForItem(item),
                         onToggle: { onToggle(item) },
-                        onDelete: { onDelete(item) }
+                        onDelete: { onDelete(item) },
+                        onEdit: onEdit != nil ? { onEdit?(item) } : nil
                     )
                     .padding(.horizontal)
 

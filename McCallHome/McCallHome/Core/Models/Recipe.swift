@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct Recipe: Codable, Identifiable, Equatable {
+struct Recipe: Codable, Identifiable, Equatable, Hashable {
     let id: UUID
     let householdId: UUID
     var title: String
@@ -334,5 +334,45 @@ struct Recipe: Codable, Identifiable, Equatable {
             return seconds
         }
         return totalMinutes > 0 ? totalMinutes : nil
+    }
+
+    /// Format time duration intelligently (shows hours when >= 60 min)
+    static func formatTime(_ minutes: Int) -> String {
+        if minutes >= 60 {
+            let hours = minutes / 60
+            let mins = minutes % 60
+            if mins == 0 {
+                return "\(hours) hr\(hours > 1 ? "s" : "")"
+            } else {
+                return "\(hours) hr\(hours > 1 ? "s" : "") \(mins)m"
+            }
+        } else {
+            return "\(minutes)m"
+        }
+    }
+
+    /// Formatted prep time string
+    var formattedPrepTime: String? {
+        guard let prepTime = prepTime else { return nil }
+        return Recipe.formatTime(prepTime)
+    }
+
+    /// Formatted cook time string
+    var formattedCookTime: String? {
+        guard let cookTime = cookTime else { return nil }
+        return Recipe.formatTime(cookTime)
+    }
+
+    /// Total time (prep + cook) formatted
+    var formattedTotalTime: String? {
+        let total = (prepTime ?? 0) + (cookTime ?? 0)
+        guard total > 0 else { return nil }
+        return Recipe.formatTime(total)
+    }
+
+    // MARK: - Hashable
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
     }
 }

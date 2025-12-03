@@ -101,13 +101,13 @@ struct ImportRecipeURLView: View {
 
                     HStack(spacing: 16) {
                         if let prepTime = scraped.prepTime {
-                            Label("\(prepTime)m prep", systemImage: "clock")
+                            Label("\(Recipe.formatTime(prepTime)) prep", systemImage: "clock")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
 
                         if let cookTime = scraped.cookTime {
-                            Label("\(cookTime)m cook", systemImage: "flame")
+                            Label("\(Recipe.formatTime(cookTime)) cook", systemImage: "flame")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -120,27 +120,23 @@ struct ImportRecipeURLView: View {
             }
 
             Section("Ingredients (\(scraped.ingredients.count))") {
-                ForEach(scraped.ingredients.prefix(5), id: \.name) { ingredient in
+                ForEach(Array(scraped.ingredients.enumerated()), id: \.offset) { index, ingredient in
                     Text(formatIngredient(ingredient))
-                        .font(.caption)
-                }
-                if scraped.ingredients.count > 5 {
-                    Text("... and \(scraped.ingredients.count - 5) more")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.subheadline)
                 }
             }
 
             Section("Instructions (\(scraped.steps.count) steps)") {
-                ForEach(scraped.steps.prefix(3), id: \.stepNumber) { step in
-                    Text(step.instruction)
-                        .font(.caption)
-                        .lineLimit(2)
-                }
-                if scraped.steps.count > 3 {
-                    Text("... and \(scraped.steps.count - 3) more steps")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                ForEach(scraped.steps, id: \.stepNumber) { step in
+                    HStack(alignment: .top, spacing: 12) {
+                        Text("\(step.stepNumber)")
+                            .font(.caption)
+                            .fontWeight(.bold)
+                            .foregroundStyle(.secondary)
+                            .frame(width: 20)
+                        Text(step.instruction)
+                            .font(.subheadline)
+                    }
                 }
             }
 

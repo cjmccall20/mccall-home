@@ -9,14 +9,34 @@ import SwiftUI
 
 struct RecipeRowView: View {
     let recipe: Recipe
+    var isFavorite: Bool = false
+    var aggregate: RecipeRatingAggregate?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
+                // Favorite indicator
+                if isFavorite {
+                    Image(systemName: "heart.fill")
+                        .foregroundStyle(.pink)
+                        .font(.caption)
+                }
+
                 Text(recipe.title)
                     .font(.headline)
 
                 Spacer()
+
+                // Rating if available
+                if let avg = aggregate?.averageRating {
+                    HStack(spacing: 2) {
+                        Image(systemName: "star.fill")
+                            .foregroundStyle(.yellow)
+                        Text(String(format: "%.1f", avg))
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
 
                 // Protein type badge
                 Text(recipe.proteinType.displayName)
@@ -29,14 +49,14 @@ struct RecipeRowView: View {
             }
 
             HStack(spacing: 16) {
-                if let prepTime = recipe.prepTime {
-                    Label("\(prepTime)m prep", systemImage: "clock")
+                if let prepTime = recipe.formattedPrepTime {
+                    Label("\(prepTime) prep", systemImage: "clock")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 
-                if let cookTime = recipe.cookTime {
-                    Label("\(cookTime)m cook", systemImage: "flame")
+                if let cookTime = recipe.formattedCookTime {
+                    Label("\(cookTime) cook", systemImage: "flame")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

@@ -17,19 +17,9 @@ struct MainTabView: View {
                     Label("Honeydew", systemImage: "checklist")
                 }
 
-            RecipeListView()
+            FoodTabView()
                 .tabItem {
-                    Label("Recipes", systemImage: "book")
-                }
-
-            MealPlanView()
-                .tabItem {
-                    Label("Meal Plan", systemImage: "calendar")
-                }
-
-            GroceryListView()
-                .tabItem {
-                    Label("Grocery", systemImage: "cart")
+                    Label("Food", systemImage: "fork.knife")
                 }
 
             MoreView()

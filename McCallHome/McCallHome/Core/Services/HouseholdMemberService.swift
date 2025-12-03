@@ -70,6 +70,22 @@ class HouseholdMemberService {
             .execute()
     }
 
+    func transferOwnership(to newOwnerId: UUID, householdId: UUID) async throws {
+        // First, remove owner status from all members in the household
+        try await supabase
+            .from("household_members")
+            .update(["is_owner": false])
+            .eq("household_id", value: householdId.uuidString)
+            .execute()
+
+        // Then set the new owner
+        try await supabase
+            .from("household_members")
+            .update(["is_owner": true])
+            .eq("id", value: newOwnerId.uuidString)
+            .execute()
+    }
+
     enum HouseholdMemberError: LocalizedError {
         case failedToCreate
 

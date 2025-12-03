@@ -12,8 +12,53 @@ struct HouseholdSettingsView: View {
     @StateObject private var viewModel = HouseholdSettingsViewModel()
     @State private var showCalendarSetup = false
 
+    private let weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+
     var body: some View {
         Form {
+            // Week Schedule
+            Section {
+                Picker("Week Starts", selection: $viewModel.settings.weekStartDay) {
+                    ForEach(0..<7) { index in
+                        Text(weekdays[index]).tag(index)
+                    }
+                }
+
+                Picker("Grocery Day", selection: $viewModel.settings.groceryShoppingDay) {
+                    ForEach(0..<7) { index in
+                        Text(weekdays[index]).tag(index)
+                    }
+                }
+            } header: {
+                Text("Week Schedule")
+            } footer: {
+                Text("Set when your week starts and when you typically shop. This affects meal plan display and smart grocery list generation.")
+            }
+
+            // Grocery & Instacart
+            Section {
+                Toggle("Group List by Store", isOn: $viewModel.settings.groupGroceryListByStore)
+
+                Toggle("Exclude Non-Instacart Stores", isOn: $viewModel.settings.excludeNonInstacartStores)
+
+                Toggle("Exclude In-Person Items", isOn: $viewModel.settings.excludeInPersonItems)
+            } header: {
+                Text("Grocery List")
+            } footer: {
+                Text("Configure how your grocery list is displayed and what items are sent to Instacart. Items marked for Costco, Farmers Market, or 'in-person' can be excluded from Instacart orders.")
+            }
+
+            // Appearance
+            Section {
+                Picker("Appearance", selection: $viewModel.settings.darkMode) {
+                    ForEach(HouseholdSettings.AppearanceMode.allCases, id: \.self) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+            } header: {
+                Text("Appearance")
+            }
+
             // Calendar Integration
             Section {
                 Toggle("Enable Google Calendar", isOn: $viewModel.settings.googleCalendarEnabled)

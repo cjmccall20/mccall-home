@@ -36,12 +36,60 @@ class FeedbackService {
             screenName: screenName
         )
 
-        try await supabase
-            .from("feedback")
-            .insert(feedback)
-            .execute()
+        // In dev mode, skip database save (foreign key constraint)
+        // Just send the email notification
+        if !Config.skipAuthForDevelopment {
+            // Save to database only when not in dev mode
+            try await supabase
+                .from("feedback")
+                .insert(feedback)
+                .execute()
+        }
+
+        // Send email notification (works in both modes)
+        await sendFeedbackEmail(feedback: feedback)
 
         return feedback
+    }
+
+    // MARK: - Send Feedback Email
+
+    private func sendFeedbackEmail(feedback: Feedback) async {
+        // Get user info for the email
+        let userName = AuthService.shared.currentUser?.name ?? "Unknown User"
+        let userEmail = AuthService.shared.currentUser?.email ?? "unknown@example.com"
+
+        struct FeedbackEmailPayload: Encodable {
+            let type: String
+            let title: String
+            let description: String
+            let userName: String
+            let userEmail: String
+            let appVersion: String
+            let iosVersion: String
+            let deviceModel: String
+        }
+
+        let payload = FeedbackEmailPayload(
+            type: feedback.type.rawValue,
+            title: feedback.title,
+            description: feedback.description,
+            userName: userName,
+            userEmail: userEmail,
+            appVersion: feedback.appVersion ?? "Unknown",
+            iosVersion: feedback.iosVersion ?? "Unknown",
+            deviceModel: feedback.deviceModel ?? "Unknown"
+        )
+
+        do {
+            try await supabase.functions.invoke(
+                "send-feedback-email",
+                options: .init(body: payload)
+            )
+        } catch {
+            // Log but don't fail - email is secondary to saving feedback
+            print("Failed to send feedback email: \(error)")
+        }
     }
 
     // MARK: - Fetch User's Feedback

@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import Combine
 
 struct MoreView: View {
     @EnvironmentObject var authViewModel: AuthViewModel
@@ -13,6 +14,30 @@ struct MoreView: View {
     var body: some View {
         NavigationStack {
             List {
+                // Profile Section
+                Section {
+                    NavigationLink {
+                        MyFavoritesView()
+                    } label: {
+                        Label {
+                            HStack {
+                                Text("My Favorites")
+                                Spacer()
+                                if let user = authViewModel.currentUser {
+                                    Text(user.name)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        } icon: {
+                            Image(systemName: "heart.fill")
+                                .foregroundStyle(.pink)
+                        }
+                    }
+                } header: {
+                    Text("Profile")
+                }
+
                 // Dining Section
                 Section {
                     NavigationLink {
@@ -29,8 +54,48 @@ struct MoreView: View {
                     Text("Dining")
                 }
 
+                // Meal Planning Section
+                Section {
+                    NavigationLink {
+                        SavedWeeksView()
+                    } label: {
+                        Label {
+                            Text("Saved Weeks")
+                        } icon: {
+                            Image(systemName: "calendar.badge.checkmark")
+                                .foregroundStyle(.blue)
+                        }
+                    }
+                } header: {
+                    Text("Meal Planning")
+                } footer: {
+                    Text("Save and reuse your favorite meal plan weeks")
+                }
+
                 // Shopping Section
                 Section {
+                    NavigationLink {
+                        HouseStaplesView()
+                    } label: {
+                        Label {
+                            Text("House Staples")
+                        } icon: {
+                            Image(systemName: "basket.fill")
+                                .foregroundStyle(.orange)
+                        }
+                    }
+
+                    NavigationLink {
+                        PantryStaplesView()
+                    } label: {
+                        Label {
+                            Text("Pantry Staples")
+                        } icon: {
+                            Image(systemName: "archivebox")
+                                .foregroundStyle(.brown)
+                        }
+                    }
+
                     NavigationLink {
                         IngredientsListView()
                     } label: {
@@ -44,7 +109,7 @@ struct MoreView: View {
                 } header: {
                     Text("Shopping")
                 } footer: {
-                    Text("Customize brands, stores, and shopping preferences for ingredients")
+                    Text("Manage recurring grocery items and ingredient preferences")
                 }
 
                 // Settings Section
@@ -175,6 +240,7 @@ struct RestaurantsListContent: View {
 
 struct SettingsContent: View {
     @EnvironmentObject var authViewModel: AuthViewModel
+    @StateObject private var memberService = SettingsMemberService()
     @State private var showSignOutConfirmation = false
     @State private var showDeleteAccountConfirmation = false
 
@@ -227,12 +293,6 @@ struct SettingsContent: View {
                 } label: {
                     Label("Invite Members", systemImage: "person.badge.plus")
                 }
-
-                NavigationLink {
-                    PantryStaplesView()
-                } label: {
-                    Label("Pantry Staples", systemImage: "archivebox")
-                }
             }
 
             // Support Section
@@ -241,12 +301,6 @@ struct SettingsContent: View {
                     FeedbackView()
                 } label: {
                     Label("Send Feedback", systemImage: "envelope")
-                }
-
-                NavigationLink {
-                    FeedbackHistoryView()
-                } label: {
-                    Label("My Feedback", systemImage: "clock.arrow.circlepath")
                 }
             }
 
@@ -258,7 +312,7 @@ struct SettingsContent: View {
                     Label("About", systemImage: "info.circle")
                 }
 
-                if let url = URL(string: "https://mccall-family.github.io/mccall-home/privacy") {
+                if let url = URL(string: "https://cjmccall20.github.io/mccall-home/privacy/") {
                     Link(destination: url) {
                         Label("Privacy Policy", systemImage: "hand.raised")
                     }
@@ -278,23 +332,28 @@ struct SettingsContent: View {
                 }
             }
 
-            // Danger Zone
-            Section {
-                Button(role: .destructive) {
-                    showDeleteAccountConfirmation = true
-                } label: {
-                    HStack {
-                        Spacer()
-                        Label("Delete Account", systemImage: "trash")
-                            .foregroundStyle(.red)
-                        Spacer()
+            // Danger Zone - Only visible to household owner
+            if memberService.isOwner {
+                Section {
+                    Button(role: .destructive) {
+                        showDeleteAccountConfirmation = true
+                    } label: {
+                        HStack {
+                            Spacer()
+                            Label("Delete Account", systemImage: "trash")
+                                .foregroundStyle(.red)
+                            Spacer()
+                        }
                     }
+                } footer: {
+                    Text("Permanently delete your account and all associated data. This cannot be undone.")
                 }
-            } footer: {
-                Text("Permanently delete your account and all associated data. This cannot be undone.")
             }
         }
         .navigationTitle("Settings")
+        .task {
+            await memberService.checkOwnerStatus()
+        }
         .confirmationDialog("Sign Out", isPresented: $showSignOutConfirmation) {
             Button("Sign Out", role: .destructive) {
                 Task {
@@ -312,6 +371,34 @@ struct SettingsContent: View {
             }
         } message: {
             Text("This will permanently delete your account and all associated data. This action cannot be undone.")
+        }
+    }
+}
+
+// MARK: - Settings Member Service
+
+@MainActor
+class SettingsMemberService: ObservableObject {
+    @Published var isOwner: Bool = false
+
+    func checkOwnerStatus() async {
+        // In dev mode, always return true for testing
+        if Config.skipAuthForDevelopment {
+            isOwner = true
+            return
+        }
+
+        guard let householdId = AuthService.shared.currentUser?.householdId,
+              let currentUserName = AuthService.shared.currentUser?.name else {
+            isOwner = false
+            return
+        }
+
+        do {
+            let members = try await HouseholdMemberService.shared.fetchMembers(for: householdId)
+            isOwner = members.first { $0.name == currentUserName }?.isOwner ?? false
+        } catch {
+            isOwner = false
         }
     }
 }

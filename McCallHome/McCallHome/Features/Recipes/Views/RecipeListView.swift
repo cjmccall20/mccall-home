@@ -63,6 +63,10 @@ struct RecipeListView: View {
             .navigationTitle("Recipes")
             .searchable(text: $viewModel.searchText, prompt: "Search recipes")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    favoritesFilterMenu
+                }
+
                 ToolbarItem(placement: .topBarTrailing) {
                     proteinFilterMenu
                 }
@@ -88,6 +92,56 @@ struct RecipeListView: View {
                     Text(error)
                 }
             }
+        }
+    }
+
+    private var favoritesFilterMenu: some View {
+        Menu {
+            // All recipes (no favorites filter)
+            Button {
+                viewModel.showFavoritesOnly = false
+                viewModel.selectedMemberFilter = nil
+            } label: {
+                HStack {
+                    Text("All Recipes")
+                    if !viewModel.showFavoritesOnly {
+                        Image(systemName: "checkmark")
+                    }
+                }
+            }
+
+            Divider()
+
+            // All household favorites
+            Button {
+                viewModel.showFavoritesOnly = true
+                viewModel.selectedMemberFilter = nil
+            } label: {
+                HStack {
+                    Text("All Favorites")
+                    if viewModel.showFavoritesOnly && viewModel.selectedMemberFilter == nil {
+                        Image(systemName: "checkmark")
+                    }
+                }
+            }
+
+            // Per-member favorites
+            ForEach(viewModel.householdMembers) { member in
+                Button {
+                    viewModel.showFavoritesOnly = true
+                    viewModel.selectedMemberFilter = member.id
+                } label: {
+                    HStack {
+                        Text("\(member.name)'s Favorites")
+                        if viewModel.showFavoritesOnly && viewModel.selectedMemberFilter == member.id {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: viewModel.showFavoritesOnly ? "heart.fill" : "heart")
+                .foregroundStyle(viewModel.showFavoritesOnly ? .pink : .primary)
         }
     }
 
@@ -131,7 +185,26 @@ struct RecipeListView: View {
                         NavigationLink {
                             RecipeDetailView(recipe: recipe, viewModel: viewModel)
                         } label: {
-                            RecipeRowView(recipe: recipe)
+                            RecipeRowView(
+                                recipe: recipe,
+                                isFavorite: viewModel.isFavorite(recipeId: recipe.id, memberId: viewModel.currentMemberId),
+                                aggregate: viewModel.getAggregate(for: recipe.id)
+                            )
+                        }
+                        .swipeActions(edge: .leading) {
+                            if let memberId = viewModel.currentMemberId {
+                                Button {
+                                    Task {
+                                        await viewModel.toggleFavorite(recipeId: recipe.id, memberId: memberId)
+                                    }
+                                } label: {
+                                    Label(
+                                        viewModel.isFavorite(recipeId: recipe.id, memberId: memberId) ? "Unfavorite" : "Favorite",
+                                        systemImage: viewModel.isFavorite(recipeId: recipe.id, memberId: memberId) ? "heart.slash" : "heart"
+                                    )
+                                }
+                                .tint(.pink)
+                            }
                         }
                     }
                     .onDelete { indexSet in

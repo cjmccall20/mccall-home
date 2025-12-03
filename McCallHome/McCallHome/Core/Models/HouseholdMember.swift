@@ -13,6 +13,7 @@ struct HouseholdMember: Codable, Identifiable, Equatable, Hashable {
     var name: String
     var email: String?
     var isActive: Bool
+    var isOwner: Bool
     let createdAt: Date
 
     enum CodingKeys: String, CodingKey {
@@ -21,15 +22,17 @@ struct HouseholdMember: Codable, Identifiable, Equatable, Hashable {
         case name
         case email
         case isActive = "is_active"
+        case isOwner = "is_owner"
         case createdAt = "created_at"
     }
 
-    init(id: UUID = UUID(), householdId: UUID, name: String, email: String? = nil, isActive: Bool = true, createdAt: Date = Date()) {
+    init(id: UUID = UUID(), householdId: UUID, name: String, email: String? = nil, isActive: Bool = true, isOwner: Bool = false, createdAt: Date = Date()) {
         self.id = id
         self.householdId = householdId
         self.name = name
         self.email = email
         self.isActive = isActive
+        self.isOwner = isOwner
         self.createdAt = createdAt
     }
 
@@ -41,6 +44,7 @@ struct HouseholdMember: Codable, Identifiable, Equatable, Hashable {
         name = try container.decode(String.self, forKey: .name)
         email = try container.decodeIfPresent(String.self, forKey: .email)
         isActive = try container.decodeIfPresent(Bool.self, forKey: .isActive) ?? true
+        isOwner = try container.decodeIfPresent(Bool.self, forKey: .isOwner) ?? false
 
         // Handle date - may have fractional seconds
         if let dateString = try? container.decode(String.self, forKey: .createdAt) {
