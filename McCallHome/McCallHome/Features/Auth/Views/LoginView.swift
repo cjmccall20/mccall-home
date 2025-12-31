@@ -10,6 +10,7 @@ import SwiftUI
 struct LoginView: View {
     @EnvironmentObject var authViewModel: AuthViewModel
     @Binding var showSignUp: Bool
+    @State private var showForgotPassword = false
 
     var body: some View {
         VStack(spacing: 24) {
@@ -21,11 +22,11 @@ struct LoginView: View {
                     .font(.system(size: 60))
                     .foregroundStyle(.blue)
 
-                Text("McCall Home")
+                Text("HomeRun")
                     .font(.largeTitle)
                     .fontWeight(.bold)
 
-                Text("Family household management")
+                Text("Household management made easy")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -66,6 +67,12 @@ struct LoginView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(authViewModel.isLoading)
+
+                Button("Forgot Password?") {
+                    showForgotPassword = true
+                }
+                .font(.subheadline)
+                .foregroundStyle(.blue)
             }
             .padding(.horizontal)
 
@@ -83,6 +90,10 @@ struct LoginView: View {
             .padding(.bottom)
         }
         .navigationBarHidden(true)
+        .sheet(isPresented: $showForgotPassword) {
+            ForgotPasswordView()
+                .environmentObject(authViewModel)
+        }
     }
 }
 

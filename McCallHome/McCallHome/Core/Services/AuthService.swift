@@ -36,8 +36,17 @@ class AuthService: ObservableObject {
                 email: Config.devEmail,
                 password: Config.devPassword
             )
-            try await fetchCurrentUser()
-            print("✅ Dev mode: signed in as \(currentUser?.email ?? "unknown")")
+
+            // Try to fetch existing user profile
+            do {
+                try await fetchCurrentUser()
+                print("✅ Dev mode: signed in as \(currentUser?.email ?? "unknown")")
+            } catch AuthError.userNotFound {
+                // User exists in auth but not in users table - create profile
+                print("📝 Creating user profile for dev account...")
+                try await createDevUserProfile()
+                print("✅ Dev mode: created and signed in as \(currentUser?.email ?? "unknown")")
+            }
         } catch {
             print("⚠️ Dev auto-sign-in failed: \(error)")
             print("💡 Make sure Config.devEmail and Config.devPassword are set to a real account")
@@ -54,6 +63,56 @@ class AuthService: ObservableObject {
             )
             isAuthenticated = true
         }
+    }
+
+    /// Create a user profile for the dev account (when auth exists but profile doesn't)
+    private func createDevUserProfile() async throws {
+        let session = try await supabase.auth.session
+        let userId = session.user.id
+
+        // Get or create a household
+        let households: [Household] = try await supabase
+            .from("households")
+            .select()
+            .limit(1)
+            .execute()
+            .value
+
+        let household: Household
+        if let existingHousehold = households.first {
+            household = existingHousehold
+        } else {
+            // Create new household
+            let newHousehold = Household(
+                id: UUID(),
+                name: "Dev Household",
+                createdAt: Date()
+            )
+            try await supabase
+                .from("households")
+                .insert(newHousehold)
+                .execute()
+            household = newHousehold
+        }
+
+        // Create user profile
+        let newUser = User(
+            id: userId,
+            householdId: household.id,
+            name: "Dev User",
+            email: Config.devEmail,
+            notificationTimes: nil,
+            deviceToken: nil,
+            createdAt: Date()
+        )
+
+        try await supabase
+            .from("users")
+            .insert(newUser)
+            .execute()
+
+        currentUser = newUser
+        isAuthenticated = true
     }
 
     func signUp(email: String, password: String, name: String) async throws {
@@ -104,11 +163,17 @@ class AuthService: ObservableObject {
 
         currentUser = newUser
         isAuthenticated = true
+
+        // Process any pending household join from deep link
+        await processPendingHouseholdJoin()
     }
 
     func signIn(email: String, password: String) async throws {
         try await supabase.auth.signIn(email: email, password: password)
         try await fetchCurrentUser()
+
+        // Process any pending household join from deep link
+        await processPendingHouseholdJoin()
     }
 
     func signOut() async throws {
@@ -166,6 +231,51 @@ class AuthService: ObservableObject {
         } else {
             throw AuthError.userNotFound
         }
+    }
+
+    // MARK: - Pending Household Join
+
+    /// Check for and process any pending household join from deep link
+    func processPendingHouseholdJoin() async {
+        guard let pendingJoinString = UserDefaults.standard.string(forKey: "pendingHouseholdJoin"),
+              let householdId = UUID(uuidString: pendingJoinString),
+              let userId = currentUser?.id else {
+            return
+        }
+
+        do {
+            // Update user's household_id
+            try await supabase
+                .from("users")
+                .update(["household_id": householdId.uuidString])
+                .eq("id", value: userId.uuidString)
+                .execute()
+
+            // Clear the pending join
+            UserDefaults.standard.removeObject(forKey: "pendingHouseholdJoin")
+
+            // Refresh user data
+            try await fetchCurrentUser()
+
+            print("Successfully joined household: \(householdId)")
+        } catch {
+            print("Failed to process pending household join: \(error)")
+        }
+    }
+
+    // MARK: - Password Reset
+
+    /// Request password reset email
+    func resetPassword(email: String) async throws {
+        try await supabase.auth.resetPasswordForEmail(
+            email,
+            redirectTo: URL(string: "homerun://reset-password")
+        )
+    }
+
+    /// Update password (called after user clicks reset link)
+    func updatePassword(newPassword: String) async throws {
+        try await supabase.auth.update(user: .init(password: newPassword))
     }
 
     private func observeAuthChanges() async {

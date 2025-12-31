@@ -122,14 +122,44 @@ class InvitationService {
     // MARK: - Generate Invite Link
 
     func generateInviteLink(for invitation: HouseholdInvitation) -> URL? {
-        // Deep link format: mccallhome://invite?token=xxx
+        // Deep link format: homerun://invite?token=xxx
         var components = URLComponents()
-        components.scheme = "mccallhome"
+        components.scheme = "homerun"
         components.host = "invite"
         components.queryItems = [
             URLQueryItem(name: "token", value: invitation.token)
         ]
         return components.url
+    }
+
+    // MARK: - Send Invitation Email
+
+    /// Sends the invitation email via Edge Function
+    func sendInvitationEmail(for invitationId: UUID) async throws {
+        struct EmailResponse: Decodable {
+            let success: Bool?
+            let error: String?
+        }
+
+        // Call edge function and decode response
+        let emailResponse: EmailResponse = try await supabase.functions.invoke(
+            "send-invitation-email",
+            options: .init(
+                body: ["invitation_id": invitationId.uuidString]
+            )
+        )
+
+        // Check for errors in response
+        if emailResponse.success != true {
+            throw InvitationError.emailSendFailed(emailResponse.error ?? "Unknown error")
+        }
+    }
+
+    /// Creates an invitation and automatically sends the email
+    func createAndSendInvitation(email: String, householdId: UUID, invitedBy: UUID) async throws -> HouseholdInvitation {
+        let invitation = try await createInvitation(email: email, householdId: householdId, invitedBy: invitedBy)
+        try await sendInvitationEmail(for: invitation.id)
+        return invitation
     }
 
     // MARK: - Errors
@@ -139,6 +169,7 @@ class InvitationService {
         case invalidToken
         case expired
         case alreadyAccepted
+        case emailSendFailed(String)
 
         var errorDescription: String? {
             switch self {
@@ -150,6 +181,8 @@ class InvitationService {
                 return "This invitation has expired"
             case .alreadyAccepted:
                 return "This invitation has already been accepted"
+            case .emailSendFailed(let message):
+                return "Failed to send invitation email: \(message)"
             }
         }
     }

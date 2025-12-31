@@ -85,7 +85,7 @@ struct DayPlanView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 6))
             } else {
                 // Has entries - tap to view detail
-                ForEach(Array(slotEntries.enumerated()), id: \.element.id) { index, entry in
+                ForEach(slotEntries.enumerated(), id: \.element.id) { index, entry in
                     HStack(spacing: 8) {
                         // Only show meal icon on first entry
                         if index == 0 {
@@ -110,6 +110,9 @@ struct DayPlanView: View {
                             }
                         }
                         .buttonStyle(.plain)
+
+                        // Grocery status icon (between chevron and assignment)
+                        groceryStatusIcon(for: entry)
 
                         // Cooking assignment button (tap to cycle)
                         assignmentButton(for: entry)
@@ -248,6 +251,25 @@ struct DayPlanView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
+        }
+    }
+
+    /// Shows grocery status: green checkmark (has ingredients), orange cart (needs shopping)
+    @ViewBuilder
+    private func groceryStatusIcon(for entry: MealPlanEntry) -> some View {
+        // Don't show for eat-out or leftovers
+        if entry.isEatOut || entry.isLeftovers {
+            EmptyView()
+        } else if entry.hasBeenShoppedFor {
+            // Has ingredients / already shopped
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 10))
+                .foregroundStyle(.green)
+        } else if entry.needsGroceries {
+            // Needs grocery shopping
+            Image(systemName: "cart.fill")
+                .font(.system(size: 10))
+                .foregroundStyle(.orange)
         }
     }
 }

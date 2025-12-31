@@ -17,14 +17,22 @@ struct InstacartOrderView: View {
     @State private var includeWeeklyStaples = true
     @State private var excludeNonInstacartStores = true
     @State private var excludeInPersonItems = true
-    @State private var showMealExclusion = false
-    @State private var excludedMealEntryIds: Set<UUID> = []
+
+    // Temporary exclusions for this order only
+    @State private var manuallyExcludedIds: Set<UUID> = []
+    @State private var manuallyIncludedIds: Set<UUID> = []  // Items moved back from excluded
+
+    // Temporary quantity overrides (just for this order)
+    @State private var quantityOverrides: [UUID: (quantity: Double, unit: String?)] = [:]
 
     // State
     @State private var isLoading = false
     @State private var error: String?
     @State private var instacartURL: URL?
     @State private var showingSafari = false
+    @State private var showHelp = false
+    @State private var showCancelConfirmation = false
+    @State private var itemToEdit: GroceryItem?
 
     private let instacartService = InstacartService.shared
     private let settingsService = HouseholdSettingsService.shared
@@ -32,100 +40,124 @@ struct InstacartOrderView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                // Items summary
+            List {
+                // Help section
                 Section {
-                    HStack {
-                        Text("Total Items")
-                        Spacer()
-                        Text("\(viewModel.uncheckedCount)")
-                            .foregroundStyle(.secondary)
+                    Button {
+                        withAnimation {
+                            showHelp.toggle()
+                        }
+                    } label: {
+                        HStack {
+                            Image(systemName: "info.circle")
+                                .foregroundStyle(.blue)
+                            Text("How this works")
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Image(systemName: showHelp ? "chevron.up" : "chevron.down")
+                                .foregroundStyle(.secondary)
+                                .font(.caption)
+                        }
                     }
 
+                    if showHelp {
+                        VStack(alignment: .leading, spacing: 8) {
+                            helpRow(icon: "hand.tap", color: .blue, text: "Tap items to edit quantities for this order")
+                            helpRow(icon: "arrow.right", color: .orange, text: "Swipe left/right to move items between sections")
+                            helpRow(icon: "checkmark.circle", color: .green, text: "Only 'Items to Order' will be sent to Instacart")
+                            helpRow(icon: "xmark.circle", color: .secondary, text: "Excluded items won't be checked off your list")
+                            helpRow(icon: "arrow.clockwise", color: .purple, text: "All changes are temporary - just for this order")
+                        }
+                        .font(.caption)
+                        .padding(.vertical, 4)
+                    }
+                }
+
+                // Order summary
+                Section {
                     HStack {
-                        Text("Items for Instacart")
+                        Text("Items to Order")
                         Spacer()
-                        Text("\(filteredItemCount)")
+                        Text("\(itemsToOrder.count)")
                             .foregroundStyle(.blue)
                             .fontWeight(.medium)
                     }
 
-                    if excludedItemCount > 0 {
-                        HStack {
-                            Text("Excluded Items")
-                            Spacer()
-                            Text("\(excludedItemCount)")
-                                .foregroundStyle(.orange)
-                        }
+                    HStack {
+                        Text("Excluded")
+                        Spacer()
+                        Text("\(excludedFromOrder.count)")
+                            .foregroundStyle(.orange)
                     }
                 } header: {
-                    Text("Order Summary")
+                    Text("Summary")
                 }
 
                 // Configuration options
                 Section {
                     Toggle("Include Weekly Staples", isOn: $includeWeeklyStaples)
-
                     Toggle("Exclude Non-Instacart Stores", isOn: $excludeNonInstacartStores)
-
                     Toggle("Exclude In-Person Items", isOn: $excludeInPersonItems)
                 } header: {
                     Text("Options")
-                } footer: {
-                    Text("Items marked for Costco, Farmers Market, Trader Joe's, or 'in-person shopping' can be excluded from this order.")
                 }
 
-                // Excluded items preview
-                if !excludedItems.isEmpty {
-                    Section {
-                        ForEach(excludedItems.prefix(5)) { item in
-                            HStack {
-                                Text(item.name)
-                                    .foregroundStyle(.secondary)
-                                Spacer()
-                                if let store = storeForItem(item) {
-                                    Text(store.displayName)
-                                        .font(.caption)
-                                        .foregroundStyle(.orange)
-                                } else if isInPersonItem(item) {
-                                    Text("In-Person")
-                                        .font(.caption)
-                                        .foregroundStyle(.orange)
-                                }
-                            }
-                        }
-
-                        if excludedItems.count > 5 {
-                            Text("+ \(excludedItems.count - 5) more...")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    } header: {
-                        Text("Excluded from Order")
-                    }
-                }
-
-                // Items to be ordered preview
+                // Items to order (full list, no limit)
                 Section {
-                    ForEach(filteredItems.prefix(10)) { item in
-                        HStack {
-                            Text(item.name)
-                            Spacer()
-                            if let qty = item.quantity {
-                                Text(formatQuantity(qty, unit: item.unit))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-
-                    if filteredItems.count > 10 {
-                        Text("+ \(filteredItems.count - 10) more items...")
-                            .font(.caption)
+                    if itemsToOrder.isEmpty {
+                        Text("No items to order")
                             .foregroundStyle(.secondary)
+                            .italic()
+                    } else {
+                        ForEach(itemsToOrder) { item in
+                            itemRow(item)
+                                .swipeActions(edge: .trailing) {
+                                    Button {
+                                        excludeItem(item)
+                                    } label: {
+                                        Label("Exclude", systemImage: "xmark.circle")
+                                    }
+                                    .tint(.orange)
+                                }
+                        }
                     }
                 } header: {
-                    Text("Items to Order")
+                    HStack {
+                        Text("Items to Order")
+                        Spacer()
+                        Text("\(itemsToOrder.count)")
+                            .foregroundStyle(.secondary)
+                    }
+                } footer: {
+                    if !itemsToOrder.isEmpty {
+                        Text("Swipe left to exclude items from this order")
+                    }
+                }
+
+                // Excluded from order (full list)
+                if !excludedFromOrder.isEmpty {
+                    Section {
+                        ForEach(excludedFromOrder) { item in
+                            excludedItemRow(item)
+                                .swipeActions(edge: .leading) {
+                                    Button {
+                                        includeItem(item)
+                                    } label: {
+                                        Label("Include", systemImage: "plus.circle")
+                                    }
+                                    .tint(.blue)
+                                }
+                        }
+                    } header: {
+                        HStack {
+                            Text("Excluded from Order")
+                            Spacer()
+                            Text("\(excludedFromOrder.count)")
+                                .foregroundStyle(.secondary)
+                        }
+                    } footer: {
+                        Text("Swipe right to add items to this order. These items won't be checked off after ordering.")
+                    }
                 }
 
                 // Warning section
@@ -140,7 +172,7 @@ struct InstacartOrderView: View {
                                 .font(.subheadline)
                                 .fontWeight(.medium)
 
-                            Text("Instacart will match items based on availability. Please review your cart before placing the order to ensure the correct products are selected.")
+                            Text("Instacart will match items based on availability. Please review your cart before placing the order.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -153,7 +185,11 @@ struct InstacartOrderView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") {
-                        dismiss()
+                        if hasManualChanges {
+                            showCancelConfirmation = true
+                        } else {
+                            dismiss()
+                        }
                     }
                 }
 
@@ -170,7 +206,7 @@ struct InstacartOrderView: View {
                                 .fontWeight(.semibold)
                         }
                     }
-                    .disabled(isLoading || filteredItems.isEmpty || !instacartService.isConfigured)
+                    .disabled(isLoading || itemsToOrder.isEmpty || !instacartService.isConfigured)
                 }
             }
             .task {
@@ -195,17 +231,140 @@ struct InstacartOrderView: View {
                     showingSafari = true
                 }
             }
+            .confirmationDialog(
+                "Discard Changes?",
+                isPresented: $showCancelConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Discard Changes", role: .destructive) {
+                    dismiss()
+                }
+                Button("Keep Editing", role: .cancel) {}
+            } message: {
+                Text("You have made changes to this order. If you cancel now, you'll need to redo any manual adjustments.")
+            }
+            .sheet(item: $itemToEdit) { item in
+                QuantityEditSheet(
+                    item: item,
+                    currentQuantity: quantityOverrides[item.id]?.quantity ?? item.quantity ?? 1,
+                    currentUnit: quantityOverrides[item.id]?.unit ?? item.unit,
+                    onSave: { newQuantity, newUnit in
+                        quantityOverrides[item.id] = (quantity: newQuantity, unit: newUnit)
+                        itemToEdit = nil
+                    }
+                )
+                .presentationDetents([.height(280)])
+            }
         }
         .presentationDetents([.large])
     }
 
+    // MARK: - View Builders
+
+    private func helpRow(icon: String, color: Color, text: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: icon)
+                .foregroundStyle(color)
+                .frame(width: 16)
+            Text(text)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func itemRow(_ item: GroceryItem) -> some View {
+        let override = quantityOverrides[item.id]
+        let displayQty = override?.quantity ?? item.quantity
+        let displayUnit = override?.unit ?? item.unit
+        let hasOverride = override != nil
+
+        return Button {
+            itemToEdit = item
+        } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.name)
+                        .foregroundStyle(.primary)
+                    if let qty = displayQty {
+                        HStack(spacing: 4) {
+                            Text(formatQuantity(qty, unit: displayUnit))
+                                .font(.caption)
+                                .foregroundStyle(hasOverride ? .blue : .secondary)
+                            if hasOverride {
+                                Image(systemName: "pencil.circle.fill")
+                                    .font(.caption2)
+                                    .foregroundStyle(.blue)
+                            }
+                        }
+                    }
+                }
+                Spacer()
+                if item.source == .staple {
+                    Text("Staple")
+                        .font(.caption2)
+                        .foregroundStyle(.purple)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.purple.opacity(0.1))
+                        .clipShape(Capsule())
+                }
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func excludedItemRow(_ item: GroceryItem) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.name)
+                    .foregroundStyle(.secondary)
+                if let qty = item.quantity {
+                    Text(formatQuantity(qty, unit: item.unit))
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            Spacer()
+            exclusionReason(for: item)
+        }
+    }
+
+    @ViewBuilder
+    private func exclusionReason(for item: GroceryItem) -> some View {
+        if manuallyExcludedIds.contains(item.id) {
+            Text("Manual")
+                .font(.caption2)
+                .foregroundStyle(.orange)
+        } else if let store = storeForItem(item), !store.isOnInstacart {
+            Text(store.displayName)
+                .font(.caption2)
+                .foregroundStyle(.orange)
+        } else if isInPersonItem(item) {
+            Text("In-Person")
+                .font(.caption2)
+                .foregroundStyle(.orange)
+        } else if item.source == .staple && !includeWeeklyStaples {
+            Text("Staple")
+                .font(.caption2)
+                .foregroundStyle(.purple)
+        }
+    }
+
     // MARK: - Computed Properties
+
+    /// Whether any manual changes have been made to this order
+    private var hasManualChanges: Bool {
+        !manuallyExcludedIds.isEmpty || !manuallyIncludedIds.isEmpty || !quantityOverrides.isEmpty
+    }
 
     private var uncheckedItems: [GroceryItem] {
         viewModel.items.filter { !$0.isChecked }
     }
 
-    private var filteredItems: [GroceryItem] {
+    /// Items that will be sent to Instacart
+    private var itemsToOrder: [GroceryItem] {
         var items = uncheckedItems
 
         // Filter out staples if not including them
@@ -213,26 +372,62 @@ struct InstacartOrderView: View {
             items = items.filter { $0.source != .staple }
         }
 
-        // Apply Instacart filters
-        return instacartService.filterItemsForInstacart(
+        // Apply Instacart filters (stores, in-person)
+        items = instacartService.filterItemsForInstacart(
             items: items,
             preferences: viewModel.ingredientPreferences,
             excludeNonInstacart: excludeNonInstacartStores,
             excludeInPerson: excludeInPersonItems
         )
+
+        // Remove manually excluded items
+        items = items.filter { !manuallyExcludedIds.contains($0.id) }
+
+        // Add back manually included items (unless they're staples and staples are off)
+        let manuallyIncluded = uncheckedItems.filter { manuallyIncludedIds.contains($0.id) }
+        for item in manuallyIncluded {
+            if !items.contains(where: { $0.id == item.id }) {
+                // Only add if not already there and passes staple check
+                if includeWeeklyStaples || item.source != .staple {
+                    items.append(item)
+                }
+            }
+        }
+
+        return items.sorted { $0.name < $1.name }
     }
 
-    private var excludedItems: [GroceryItem] {
-        let filtered = Set(filteredItems.map { $0.id })
-        return uncheckedItems.filter { !filtered.contains($0.id) }
+    /// Items excluded from the order
+    private var excludedFromOrder: [GroceryItem] {
+        let orderedIds = Set(itemsToOrder.map { $0.id })
+        return uncheckedItems
+            .filter { !orderedIds.contains($0.id) }
+            .sorted { $0.name < $1.name }
     }
 
-    private var filteredItemCount: Int {
-        filteredItems.count
+    /// Items to order with quantity overrides applied
+    private var itemsToOrderWithOverrides: [GroceryItem] {
+        itemsToOrder.map { item in
+            if let override = quantityOverrides[item.id] {
+                var modifiedItem = item
+                modifiedItem.quantity = override.quantity
+                modifiedItem.unit = override.unit
+                return modifiedItem
+            }
+            return item
+        }
     }
 
-    private var excludedItemCount: Int {
-        excludedItems.count
+    // MARK: - Actions
+
+    private func excludeItem(_ item: GroceryItem) {
+        manuallyExcludedIds.insert(item.id)
+        manuallyIncludedIds.remove(item.id)
+    }
+
+    private func includeItem(_ item: GroceryItem) {
+        manuallyIncludedIds.insert(item.id)
+        manuallyExcludedIds.remove(item.id)
     }
 
     // MARK: - Helper Methods
@@ -280,7 +475,7 @@ struct InstacartOrderView: View {
     }
 
     private func sendToInstacart() async {
-        guard !filteredItems.isEmpty else {
+        guard !itemsToOrder.isEmpty else {
             error = "No items to send to Instacart"
             return
         }
@@ -293,11 +488,21 @@ struct InstacartOrderView: View {
             dateFormatter.dateFormat = "MMM d"
             let title = "Groceries - \(dateFormatter.string(from: Date()))"
 
+            // Use items with quantity overrides applied
             let url = try await instacartService.createShoppingList(
-                items: filteredItems,
+                items: itemsToOrderWithOverrides,
                 ingredientPreferences: viewModel.ingredientPreferences,
                 title: title
             )
+
+            // Only check off items that were actually sent (not excluded)
+            let sentItemIds = Set(itemsToOrder.map { $0.id })
+            for item in viewModel.items where sentItemIds.contains(item.id) && !item.isChecked {
+                try await viewModel.groceryService.toggleItem(item)
+            }
+
+            // Refresh the list
+            await viewModel.fetchCurrentList()
 
             instacartURL = url
         } catch {
@@ -320,6 +525,107 @@ struct SafariView: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {}
+}
+
+// MARK: - Quantity Edit Sheet
+
+struct QuantityEditSheet: View {
+    let item: GroceryItem
+    let currentQuantity: Double
+    let currentUnit: String?
+    let onSave: (Double, String?) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var quantity: Double
+    @State private var unit: String
+
+    init(item: GroceryItem, currentQuantity: Double, currentUnit: String?, onSave: @escaping (Double, String?) -> Void) {
+        self.item = item
+        self.currentQuantity = currentQuantity
+        self.currentUnit = currentUnit
+        self.onSave = onSave
+        self._quantity = State(initialValue: currentQuantity)
+        self._unit = State(initialValue: currentUnit ?? "")
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text(item.name)
+                        .font(.headline)
+                } header: {
+                    Text("Item")
+                }
+
+                Section {
+                    HStack {
+                        Text("Quantity")
+                        Spacer()
+                        HStack(spacing: 12) {
+                            Button {
+                                if quantity > 1 {
+                                    quantity -= 1
+                                }
+                            } label: {
+                                Image(systemName: "minus.circle.fill")
+                                    .font(.title2)
+                                    .foregroundStyle(quantity > 1 ? .blue : .gray)
+                            }
+                            .disabled(quantity <= 1)
+
+                            Text(formatQuantity(quantity))
+                                .font(.title3)
+                                .fontWeight(.medium)
+                                .frame(minWidth: 40)
+
+                            Button {
+                                quantity += 1
+                            } label: {
+                                Image(systemName: "plus.circle.fill")
+                                    .font(.title2)
+                                    .foregroundStyle(.blue)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    HStack {
+                        Text("Unit")
+                        Spacer()
+                        TextField("e.g., lbs, oz, dozen", text: $unit)
+                            .multilineTextAlignment(.trailing)
+                            .foregroundStyle(.secondary)
+                    }
+                } header: {
+                    Text("Quantity for this order")
+                } footer: {
+                    Text("This change only applies to this Instacart order and won't affect your grocery list.")
+                }
+            }
+            .navigationTitle("Edit Quantity")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Save") {
+                        onSave(quantity, unit.isEmpty ? nil : unit)
+                    }
+                    .fontWeight(.semibold)
+                }
+            }
+        }
+    }
+
+    private func formatQuantity(_ qty: Double) -> String {
+        qty.truncatingRemainder(dividingBy: 1) == 0
+            ? String(Int(qty))
+            : String(format: "%.1f", qty)
+    }
 }
 
 #Preview {

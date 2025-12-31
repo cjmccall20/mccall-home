@@ -28,7 +28,13 @@ struct CreateTemplateBuilderView: View {
     let dayNames = ["Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7"]
 
     var canSave: Bool {
-        !name.isEmpty && !entries.isEmpty
+        !entries.isEmpty  // Name is optional - we'll generate a default
+    }
+
+    /// Generate a default template name based on existing template count
+    var defaultTemplateName: String {
+        let existingCount = viewModel.templates.count
+        return "Template #\(existingCount + 1)"
     }
 
     var householdId: UUID? {
@@ -74,6 +80,7 @@ struct CreateTemplateBuilderView: View {
                         mealType: mealType,
                         recipes: viewModel.recipes,
                         restaurants: viewModel.restaurants,
+                        ingredients: viewModel.ingredients,
                         onAdd: { entry in
                             entries.append(entry)
                         }
@@ -88,7 +95,8 @@ struct CreateTemplateBuilderView: View {
                         mealType: mealType,
                         entries: $entries,
                         recipes: viewModel.recipes,
-                        restaurants: viewModel.restaurants
+                        restaurants: viewModel.restaurants,
+                        ingredients: viewModel.ingredients
                     )
                 }
             }
@@ -105,9 +113,12 @@ struct CreateTemplateBuilderView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     if name.isEmpty {
-                        Text("Tap to name this template")
+                        Text(defaultTemplateName)
                             .font(.headline)
                             .foregroundStyle(.secondary)
+                        Text("Tap to customize name")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
                     } else {
                         Text(name)
                             .font(.headline)
@@ -181,9 +192,12 @@ struct CreateTemplateBuilderView: View {
 
         Task {
             do {
+                // Use provided name or generate default
+                let templateName = name.isEmpty ? defaultTemplateName : name
+
                 let template = MealPlanTemplate(
                     householdId: householdId,
-                    name: name,
+                    name: templateName,
                     entries: entries,
                     notes: notes.isEmpty ? nil : notes
                 )
@@ -313,7 +327,7 @@ struct TemplateDayPlanView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 6))
             } else {
                 // Has entries - tap to view detail
-                ForEach(Array(slotEntries.enumerated()), id: \.element.id) { index, entry in
+                ForEach(slotEntries.enumerated(), id: \.element.id) { index, entry in
                     HStack(spacing: 8) {
                         // Only show meal icon on first entry
                         if index == 0 {
@@ -434,6 +448,7 @@ struct TemplateMealDetailView: View {
     @Binding var entries: [MealPlanTemplate.TemplateEntry]
     let recipes: [Recipe]
     let restaurants: [Restaurant]
+    let ingredients: [IngredientPreference]
 
     @State private var showMealPicker = false
 
@@ -496,6 +511,7 @@ struct TemplateMealDetailView: View {
                     mealType: mealType,
                     recipes: recipes,
                     restaurants: restaurants,
+                    ingredients: ingredients,
                     onAdd: { entry in
                         entries.append(entry)
                     }
@@ -542,6 +558,7 @@ struct TemplateMealPickerView: View {
     let mealType: MealPlanEntry.MealType
     let recipes: [Recipe]
     let restaurants: [Restaurant]
+    let ingredients: [IngredientPreference]
     let onAdd: (MealPlanTemplate.TemplateEntry) -> Void
 
     @State private var searchText = ""
@@ -797,6 +814,7 @@ struct TemplateMealPickerView: View {
                 TemplateIngredientSheet(
                     dayIndex: dayIndex,
                     mealType: mealType,
+                    ingredients: ingredients,
                     onAdd: { entry in
                         onAdd(entry)
                         pendingDismiss = true
@@ -970,21 +988,89 @@ struct TemplateIngredientSheet: View {
 
     let dayIndex: Int
     let mealType: MealPlanEntry.MealType
+    let ingredients: [IngredientPreference]
     let onAdd: (MealPlanTemplate.TemplateEntry) -> Void
 
     @State private var ingredientName = ""
+    @State private var quantity = ""
+    @State private var searchText = ""
+    @State private var showExistingIngredients = true
+
+    var filteredIngredients: [IngredientPreference] {
+        if searchText.isEmpty {
+            return ingredients
+        }
+        return ingredients.filter { $0.canonicalName.localizedCaseInsensitiveContains(searchText) }
+    }
 
     var body: some View {
         NavigationStack {
-            Form {
+            List {
+                // Quick add section
                 Section {
                     TextField("Ingredient name", text: $ingredientName)
+                    TextField("Quantity (e.g., 2 boxes, 1 lb)", text: $quantity)
+
+                    Button {
+                        addIngredient(name: ingredientName, quantity: quantity.isEmpty ? nil : quantity)
+                    } label: {
+                        HStack {
+                            Image(systemName: "plus.circle.fill")
+                                .foregroundStyle(.blue)
+                            Text("Add to Template")
+                                .foregroundStyle(.blue)
+                        }
+                    }
+                    .disabled(ingredientName.isEmpty)
                 } header: {
-                    Text("Simple Ingredient")
+                    Text("Quick Add")
                 } footer: {
-                    Text("For simple meals like \"Eggs\" or \"Oatmeal\"")
+                    Text("Enter any ingredient, snack, or pre-packaged item")
+                }
+
+                // Select from existing ingredients
+                Section {
+                    Toggle("Show saved ingredients", isOn: $showExistingIngredients)
+
+                    if showExistingIngredients {
+                        if ingredients.isEmpty {
+                            Text("No saved ingredients yet")
+                                .foregroundStyle(.secondary)
+                                .font(.subheadline)
+                        } else {
+                            TextField("Search ingredients", text: $searchText)
+
+                            ForEach(filteredIngredients.prefix(10)) { ingredient in
+                                Button {
+                                    addIngredient(name: ingredient.effectiveDisplayName, quantity: nil)
+                                } label: {
+                                    HStack {
+                                        Text(ingredient.effectiveDisplayName)
+                                            .foregroundStyle(.primary)
+                                        Spacer()
+                                        if let store = ingredient.preferredStore {
+                                            Text(store.displayName)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        Image(systemName: "plus.circle")
+                                            .foregroundStyle(.blue)
+                                    }
+                                }
+                            }
+
+                            if filteredIngredients.count > 10 {
+                                Text("\(filteredIngredients.count - 10) more...")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Or Select Existing")
                 }
             }
+            .listStyle(.insetGrouped)
             .navigationTitle("Add Ingredient")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -993,23 +1079,21 @@ struct TemplateIngredientSheet: View {
                         dismiss()
                     }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Add") {
-                        let entry = MealPlanTemplate.TemplateEntry(
-                            dayOfWeek: dayIndex,
-                            mealType: mealType,
-                            isIngredientOnly: true,
-                            ingredientName: ingredientName
-                        )
-                        onAdd(entry)
-                        dismiss()
-                    }
-                    .disabled(ingredientName.isEmpty)
-                    .fontWeight(.semibold)
-                }
             }
         }
-        .presentationDetents([.height(200)])
+        .presentationDetents([.medium, .large])
+    }
+
+    private func addIngredient(name: String, quantity: String?) {
+        let entry = MealPlanTemplate.TemplateEntry(
+            dayOfWeek: dayIndex,
+            mealType: mealType,
+            isIngredientOnly: true,
+            ingredientName: name,
+            ingredientQuantity: quantity
+        )
+        onAdd(entry)
+        dismiss()
     }
 }
 

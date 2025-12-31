@@ -2,13 +2,19 @@
 //  Secrets.example.swift
 //  McCallHome
 //
-//  Copy this file to Secrets.swift and fill in your values.
-//  Secrets.swift is gitignored and will not be committed.
+//  TEMPLATE FILE - Copy to Secrets.swift and fill in your values.
+//  This file is NOT compiled (no actual code below).
+//
+//  Steps:
+//  1. Copy this file to Secrets.swift
+//  2. Replace YOUR_PASSWORD_HERE with your actual Supabase password
+//  3. Secrets.swift is gitignored and won't be committed
 //
 
+/*
 import Foundation
 
 enum Secrets {
-    // Your Supabase account password for dev auto-sign-in
-    static let devPassword = "YOUR_PASSWORD_HERE"  // TODO: Replace with your actual password
+    static let devPassword = "YOUR_PASSWORD_HERE"
 }
+*/

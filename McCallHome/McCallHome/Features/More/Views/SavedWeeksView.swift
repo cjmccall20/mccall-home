@@ -50,6 +50,7 @@ struct SavedWeeksView: View {
                                 template: template,
                                 recipes: viewModel.recipes,
                                 restaurants: viewModel.restaurants,
+                                ingredients: viewModel.ingredients,
                                 onDelete: {
                                     Task {
                                         await viewModel.deleteTemplate(template)
@@ -159,6 +160,7 @@ struct SavedWeekRow: View {
     let template: MealPlanTemplate
     let recipes: [Recipe]
     let restaurants: [Restaurant]
+    let ingredients: [IngredientPreference]
     let onDelete: () -> Void
 
     @State private var showDetail = false
@@ -218,8 +220,10 @@ struct SavedWeekRow: View {
                 template: template,
                 recipes: recipes,
                 restaurants: restaurants,
+                ingredients: ingredients,
                 weekStart: nil,
                 onApply: {}
+                // onSave not provided - edit not available from More tab
             )
         }
     }

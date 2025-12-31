@@ -104,6 +104,44 @@ class AuthViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Password Reset
+
+    func requestPasswordReset(email: String) async {
+        guard !email.isEmpty else {
+            error = "Please enter your email address"
+            return
+        }
+
+        isLoading = true
+        error = nil
+
+        do {
+            try await authService.resetPassword(email: email)
+        } catch {
+            self.error = error.localizedDescription
+        }
+
+        isLoading = false
+    }
+
+    func updatePassword(newPassword: String) async {
+        guard newPassword.count >= 6 else {
+            error = "Password must be at least 6 characters"
+            return
+        }
+
+        isLoading = true
+        error = nil
+
+        do {
+            try await authService.updatePassword(newPassword: newPassword)
+        } catch {
+            self.error = error.localizedDescription
+        }
+
+        isLoading = false
+    }
+
     private func clearFields() {
         email = ""
         password = ""

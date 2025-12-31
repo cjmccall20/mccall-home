@@ -75,6 +75,8 @@ class GroceryService {
     }
 
     /// Generate a smart grocery list using Claude AI
+    /// - Parameters:
+    ///   - onlyUnshoppedMeals: If true, only includes meals that haven't been shopped for yet (needsGroceries = true)
     func generateSmartGroceryList(
         mealPlanEntries: [MealPlanEntry],
         recipes: [Recipe],
@@ -82,6 +84,7 @@ class GroceryService {
         householdId: UUID,
         preserveManualItems: Bool = true,
         preserveCheckedItems: Bool = true,
+        onlyUnshoppedMeals: Bool = true,
         dateRange: (start: Date, end: Date)? = nil
     ) async throws -> GroceryList {
         // Get current list's items to preserve (manual items and checked items)
@@ -102,9 +105,20 @@ class GroceryService {
         // Create a set of already-purchased item names for deduplication
         let checkedItemNames = Set(checkedItemsToPreserve.map { $0.name.lowercased() })
 
+        // Filter entries based on onlyUnshoppedMeals flag
+        let entriesToInclude = mealPlanEntries.filter { entry in
+            // Skip eat-out and leftovers
+            guard !entry.isEatOut && !entry.isLeftovers else { return false }
+            // If onlyUnshoppedMeals is true, skip entries that have already been shopped for
+            if onlyUnshoppedMeals && !entry.needsGroceries {
+                return false
+            }
+            return true
+        }
+
         // Build recipe entries for the API
         var recipeEntries: [[String: Any]] = []
-        for entry in mealPlanEntries where !entry.isEatOut && !entry.isLeftovers {
+        for entry in entriesToInclude {
             guard let recipeId = entry.recipeId,
                   let recipe = recipes.first(where: { $0.id == recipeId }) else { continue }
 
@@ -132,6 +146,7 @@ class GroceryService {
                 recipes: recipes,
                 householdId: householdId,
                 preserveManualItems: preserveManualItems,
+                onlyUnshoppedMeals: onlyUnshoppedMeals,
                 dateRange: dateRange
             )
         }
@@ -335,7 +350,7 @@ class GroceryService {
 
     // MARK: - Legacy Generation (fallback)
 
-    func generateFromMealPlan(mealPlanEntries: [MealPlanEntry], recipes: [Recipe], householdId: UUID, preserveManualItems: Bool = true, dateRange: (start: Date, end: Date)? = nil) async throws -> GroceryList {
+    func generateFromMealPlan(mealPlanEntries: [MealPlanEntry], recipes: [Recipe], householdId: UUID, preserveManualItems: Bool = true, onlyUnshoppedMeals: Bool = true, dateRange: (start: Date, end: Date)? = nil) async throws -> GroceryList {
         // Get current list's manual items if we need to preserve them
         var manualItemsToPreserve: [GroceryItem] = []
 
@@ -379,10 +394,21 @@ class GroceryService {
             .insert(newList)
             .execute()
 
+        // Filter entries based on onlyUnshoppedMeals flag
+        let entriesToInclude = mealPlanEntries.filter { entry in
+            // Skip eat-out and leftovers
+            guard !entry.isEatOut && !entry.isLeftovers else { return false }
+            // If onlyUnshoppedMeals is true, skip entries that have already been shopped for
+            if onlyUnshoppedMeals && !entry.needsGroceries {
+                return false
+            }
+            return true
+        }
+
         // Aggregate ingredients from all recipes in the meal plan (only entries with recipes)
         var ingredientMap: [String: (quantity: Double?, unit: String?, category: GroceryItem.Category, recipeId: UUID?)] = [:]
 
-        for entry in mealPlanEntries where !entry.isEatOut && !entry.isLeftovers {
+        for entry in entriesToInclude {
             guard let recipeId = entry.recipeId,
                   let recipe = recipes.first(where: { $0.id == recipeId }) else { continue }
 
@@ -548,6 +574,45 @@ class GroceryService {
             .delete()
             .eq("grocery_list_id", value: listId.uuidString)
             .execute()
+    }
+
+    // MARK: - Empty List Creation
+
+    /// Create an empty grocery list (for manual item entry)
+    func createEmptyList(householdId: UUID, weekStart: Date) async throws -> GroceryList {
+        // Mark any existing current list as not current
+        let existingLists: [GroceryList] = try await supabase
+            .from("grocery_lists")
+            .select()
+            .eq("household_id", value: householdId.uuidString)
+            .eq("is_current", value: true)
+            .execute()
+            .value
+
+        for list in existingLists {
+            try await supabase
+                .from("grocery_lists")
+                .update(["is_current": false])
+                .eq("id", value: list.id.uuidString)
+                .execute()
+        }
+
+        // Create new empty grocery list
+        let newList = GroceryList(
+            id: UUID(),
+            householdId: householdId,
+            weekStart: weekStart,
+            isCurrent: true,
+            mealPlanHash: nil,
+            generatedAt: Date()
+        )
+
+        try await supabase
+            .from("grocery_lists")
+            .insert(newList)
+            .execute()
+
+        return newList
     }
 
     // MARK: - List Completion

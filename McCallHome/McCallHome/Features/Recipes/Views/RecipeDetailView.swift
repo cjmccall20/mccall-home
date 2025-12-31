@@ -18,6 +18,9 @@ struct RecipeDetailView: View {
     @State private var showEditSheet = false
     @State private var showNotesEditor = false
     @State private var editableNotes: String = ""
+    @State private var selectedIngredientPreference: IngredientPreference?
+    @State private var isLoadingIngredient = false
+    @StateObject private var ingredientsViewModel = IngredientsViewModel()
 
     init(recipe: Recipe, viewModel: RecipesViewModel) {
         self.recipe = recipe
@@ -89,33 +92,51 @@ struct RecipeDetailView: View {
 
                 // Ingredients
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Ingredients")
-                        .font(.headline)
+                    HStack {
+                        Text("Ingredients")
+                            .font(.headline)
+                        Spacer()
+                        Text("Tap to customize")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
 
                     ForEach(recipe.ingredients) { ingredient in
-                        HStack {
-                            Image(systemName: "circle.fill")
-                                .font(.system(size: 6))
-                                .foregroundStyle(.secondary)
-
-                            if let quantity = ingredient.quantity {
-                                let adjusted = adjustedQuantity(quantity)
-                                Text(formatQuantity(adjusted))
-                                    .fontWeight(.medium)
-                            }
-
-                            if let unit = ingredient.unit {
-                                Text(unit)
-                            }
-
-                            Text(ingredient.name)
-
-                            if let notes = ingredient.notes {
-                                Text("(\(notes))")
+                        Button {
+                            loadIngredientPreference(for: ingredient)
+                        } label: {
+                            HStack {
+                                Image(systemName: "circle.fill")
+                                    .font(.system(size: 6))
                                     .foregroundStyle(.secondary)
+
+                                if let quantity = ingredient.quantity {
+                                    let adjusted = adjustedQuantity(quantity)
+                                    Text(formatQuantity(adjusted))
+                                        .fontWeight(.medium)
+                                }
+
+                                if let unit = ingredient.unit {
+                                    Text(unit)
+                                }
+
+                                Text(ingredient.name)
+
+                                if let notes = ingredient.notes {
+                                    Text("(\(notes))")
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                Spacer()
+
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
                             }
+                            .font(.body)
+                            .foregroundStyle(.primary)
                         }
-                        .font(.body)
+                        .buttonStyle(.plain)
                     }
                 }
 
@@ -224,6 +245,27 @@ struct RecipeDetailView: View {
                 saveNotes()
             }
         }
+        .sheet(item: $selectedIngredientPreference) { preference in
+            NavigationStack {
+                IngredientDetailView(ingredient: preference, viewModel: ingredientsViewModel)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button("Close") {
+                                selectedIngredientPreference = nil
+                            }
+                        }
+                    }
+            }
+        }
+        .overlay {
+            if isLoadingIngredient {
+                Color.black.opacity(0.3)
+                    .ignoresSafeArea()
+                ProgressView()
+                    .scaleEffect(1.5)
+                    .tint(.white)
+            }
+        }
         .confirmationDialog("Delete Recipe", isPresented: $showDeleteConfirmation) {
             Button("Delete", role: .destructive) {
                 Task {
@@ -257,6 +299,25 @@ struct RecipeDetailView: View {
 
         Task {
             await viewModel.updateRecipe(updated)
+        }
+    }
+
+    private func loadIngredientPreference(for ingredient: Recipe.Ingredient) {
+        guard let householdId = viewModel.householdId else { return }
+
+        isLoadingIngredient = true
+
+        Task {
+            do {
+                let preference = try await IngredientPreferenceService.shared.getOrCreatePreference(
+                    for: ingredient.name,
+                    householdId: householdId
+                )
+                selectedIngredientPreference = preference
+            } catch {
+                print("Error loading ingredient preference: \(error)")
+            }
+            isLoadingIngredient = false
         }
     }
 }

@@ -73,6 +73,24 @@ class IngredientPreferenceService {
             .execute()
     }
 
+    /// Gets an existing preference or creates a new one for the given ingredient name
+    func getOrCreatePreference(for ingredientName: String, householdId: UUID) async throws -> IngredientPreference {
+        let normalizedName = normalizeIngredientName(ingredientName)
+
+        // Try to fetch existing preference
+        if let existing = try await fetchPreference(for: normalizedName, householdId: householdId) {
+            return existing
+        }
+
+        // Create a new preference
+        let newPreference = IngredientPreference(
+            householdId: householdId,
+            canonicalName: normalizedName
+        )
+        try await createPreference(newPreference)
+        return newPreference
+    }
+
     // MARK: - Bulk Operations
 
     /// Ensures ingredient preferences exist for a list of ingredient names

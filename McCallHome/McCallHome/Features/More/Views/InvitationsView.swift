@@ -6,66 +6,140 @@
 //
 
 import SwiftUI
+import Supabase
 import Combine
 
 struct InvitationsView: View {
     @StateObject private var viewModel = InvitationsViewModel()
-    @State private var showInviteSheet = false
 
     var body: some View {
         List {
             // Invite Section
             Section {
+                // Share Invite Link
                 Button {
-                    showInviteSheet = true
+                    viewModel.shareHouseholdInvite()
                 } label: {
-                    Label("Invite Someone", systemImage: "plus.circle.fill")
+                    HStack {
+                        Image(systemName: "link")
+                            .font(.title2)
+                            .foregroundStyle(.blue)
+                            .frame(width: 40)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Share Invite Link")
+                                .font(.headline)
+                            Text("Share via iMessage, WhatsApp, or any app")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer()
+
+                        Image(systemName: "square.and.arrow.up")
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 8)
                 }
+                .buttonStyle(.plain)
             } footer: {
-                Text("Invite family members or friends to join your household.")
+                Text("Send the link to anyone you want to invite to your household.")
             }
 
-            // Pending Invitations
+            // Household Members Section
+            if !viewModel.householdMembers.isEmpty {
+                Section("Household Members") {
+                    ForEach(viewModel.householdMembers) { member in
+                        HStack {
+                            Text(member.initial)
+                                .font(.headline)
+                                .foregroundStyle(.white)
+                                .frame(width: 36, height: 36)
+                                .background(colorForMember(member))
+                                .clipShape(Circle())
+
+                            VStack(alignment: .leading) {
+                                Text(member.name)
+                                    .font(.subheadline)
+                                if member.id == viewModel.currentUserId {
+                                    Text("You")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Pending Invitations (if any)
             if !viewModel.pendingInvitations.isEmpty {
                 Section("Pending Invitations") {
                     ForEach(viewModel.pendingInvitations) { invitation in
-                        InvitationRow(invitation: invitation, viewModel: viewModel)
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(invitation.email)
+                                    .font(.subheadline)
+                                Text("Expires \(invitation.expiresAt, style: .relative)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Spacer()
+
+                            Button {
+                                Task {
+                                    await viewModel.revokeInvitation(invitation)
+                                }
+                            } label: {
+                                Text("Revoke")
+                                    .font(.caption)
+                                    .foregroundStyle(.red)
+                            }
+                            .buttonStyle(.bordered)
+                        }
                     }
                 }
             }
 
-            // Past Invitations
-            if !viewModel.pastInvitations.isEmpty {
-                Section("Past Invitations") {
-                    ForEach(viewModel.pastInvitations) { invitation in
-                        InvitationRow(invitation: invitation, viewModel: viewModel, showActions: false)
-                    }
-                }
-            }
-
-            // Empty State
-            if viewModel.invitations.isEmpty && !viewModel.isLoading {
+            // Leave Household Section
+            if viewModel.householdMembers.count > 1 {
                 Section {
-                    ContentUnavailableView(
-                        "No Invitations",
-                        systemImage: "envelope.badge",
-                        description: Text("Invite family members to join your household")
-                    )
+                    Button(role: .destructive) {
+                        viewModel.showLeaveConfirmation = true
+                    } label: {
+                        HStack {
+                            Spacer()
+                            Text("Leave Household")
+                            Spacer()
+                        }
+                    }
+                } footer: {
+                    Text("You'll be moved to your own new household. Your data will stay with your current household.")
                 }
             }
         }
-        .navigationTitle("Invitations")
+        .confirmationDialog(
+            "Leave Household?",
+            isPresented: $viewModel.showLeaveConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Leave and Create New Household", role: .destructive) {
+                Task {
+                    await viewModel.leaveHousehold()
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("You'll be moved to a new household. Your recipes, meal plans, and other data will stay with your current household.")
+        }
+        .navigationTitle("Household")
         .navigationBarTitleDisplayMode(.inline)
         .task {
-            await viewModel.loadInvitations()
+            await viewModel.loadData()
         }
         .refreshable {
-            await viewModel.loadInvitations()
-        }
-        .sheet(isPresented: $showInviteSheet) {
-            SendInviteView(viewModel: viewModel) {
-                showInviteSheet = false
-            }
+            await viewModel.loadData()
         }
         .alert("Error", isPresented: .constant(viewModel.error != nil)) {
             Button("OK") {
@@ -77,165 +151,11 @@ struct InvitationsView: View {
             }
         }
     }
-}
 
-// MARK: - Invitation Row
-
-struct InvitationRow: View {
-    let invitation: HouseholdInvitation
-    @ObservedObject var viewModel: InvitationsViewModel
-    var showActions: Bool = true
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(invitation.email)
-                    .font(.headline)
-
-                Spacer()
-
-                StatusBadge(status: invitation.status)
-            }
-
-            HStack {
-                Text("Sent \(invitation.createdAt, style: .relative) ago")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                if invitation.status == .pending {
-                    Text("•")
-                        .foregroundStyle(.secondary)
-
-                    if invitation.isExpired {
-                        Text("Expired")
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                    } else {
-                        Text("Expires \(invitation.expiresAt, style: .relative)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-
-            if showActions && invitation.status == .pending && !invitation.isExpired {
-                HStack(spacing: 12) {
-                    Button {
-                        viewModel.shareInvitation(invitation)
-                    } label: {
-                        Label("Share Link", systemImage: "square.and.arrow.up")
-                            .font(.caption)
-                    }
-                    .buttonStyle(.bordered)
-
-                    Button(role: .destructive) {
-                        Task {
-                            await viewModel.revokeInvitation(invitation)
-                        }
-                    } label: {
-                        Label("Revoke", systemImage: "xmark.circle")
-                            .font(.caption)
-                    }
-                    .buttonStyle(.bordered)
-                    .tint(.red)
-                }
-                .padding(.top, 4)
-            }
-        }
-        .padding(.vertical, 4)
-    }
-}
-
-// MARK: - Status Badge
-
-struct StatusBadge: View {
-    let status: InvitationStatus
-
-    var body: some View {
-        Text(status.displayName)
-            .font(.caption2)
-            .fontWeight(.medium)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(color.opacity(0.15))
-            .foregroundStyle(color)
-            .clipShape(Capsule())
-    }
-
-    private var color: Color {
-        switch status {
-        case .pending: return .orange
-        case .accepted: return .green
-        case .declined: return .red
-        case .expired: return .gray
-        case .revoked: return .gray
-        }
-    }
-}
-
-// MARK: - Send Invite View
-
-struct SendInviteView: View {
-    @Environment(\.dismiss) private var dismiss
-    @ObservedObject var viewModel: InvitationsViewModel
-    let onComplete: () -> Void
-
-    @State private var email = ""
-    @State private var isSending = false
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    TextField("Email address", text: $email)
-                        .textContentType(.emailAddress)
-                        .keyboardType(.emailAddress)
-                        .autocapitalization(.none)
-                } header: {
-                    Text("Email Address")
-                } footer: {
-                    Text("We'll send an invitation link to this email address.")
-                }
-
-                Section {
-                    Button {
-                        sendInvite()
-                    } label: {
-                        HStack {
-                            Spacer()
-                            if isSending {
-                                ProgressView()
-                            } else {
-                                Text("Send Invitation")
-                            }
-                            Spacer()
-                        }
-                    }
-                    .disabled(email.isEmpty || !email.contains("@") || isSending)
-                }
-            }
-            .navigationTitle("Invite Member")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                }
-            }
-        }
-        .presentationDetents([.medium])
-    }
-
-    private func sendInvite() {
-        isSending = true
-        Task {
-            await viewModel.sendInvitation(to: email)
-            isSending = false
-            if viewModel.error == nil {
-                onComplete()
-            }
-        }
+    private func colorForMember(_ member: HouseholdMember) -> Color {
+        let colors: [Color] = [.blue, .green, .orange, .purple, .pink, .teal]
+        let index = abs(member.id.hashValue) % colors.count
+        return colors[index]
     }
 }
 
@@ -243,70 +163,46 @@ struct SendInviteView: View {
 
 @MainActor
 class InvitationsViewModel: ObservableObject {
-    @Published var invitations: [HouseholdInvitation] = []
+    @Published var householdMembers: [HouseholdMember] = []
+    @Published var pendingInvitations: [HouseholdInvitation] = []
     @Published var isLoading = false
     @Published var error: String?
+    @Published var showLeaveConfirmation = false
 
     private let invitationService = InvitationService.shared
     private let authService = AuthService.shared
 
-    var pendingInvitations: [HouseholdInvitation] {
-        invitations.filter { $0.status == .pending && !$0.isExpired }
+    var currentUserId: UUID? {
+        authService.currentUser?.id
     }
 
-    var pastInvitations: [HouseholdInvitation] {
-        invitations.filter { $0.status != .pending || $0.isExpired }
-    }
-
-    func loadInvitations() async {
+    func loadData() async {
         guard let householdId = authService.currentUser?.householdId else { return }
 
-        isLoading = invitations.isEmpty
+        isLoading = true
         do {
-            invitations = try await invitationService.fetchInvitations(for: householdId)
+            // Load household members
+            householdMembers = try await HouseholdMemberService.shared.fetchMembers(for: householdId)
+
+            // Load pending invitations
+            let allInvitations = try await invitationService.fetchInvitations(for: householdId)
+            pendingInvitations = allInvitations.filter { $0.status == .pending && !$0.isExpired }
         } catch {
             self.error = error.localizedDescription
         }
         isLoading = false
     }
 
-    func sendInvitation(to email: String) async {
+    func shareHouseholdInvite() {
         guard let user = authService.currentUser else { return }
 
-        do {
-            let invitation = try await invitationService.createInvitation(
-                email: email,
-                householdId: user.householdId,
-                invitedBy: user.id
-            )
-
-            // Trigger email sending via Edge Function
-            // For now, just add to local list and share link
-            invitations.insert(invitation, at: 0)
-            shareInvitation(invitation)
-        } catch {
-            self.error = error.localizedDescription
-        }
-    }
-
-    func revokeInvitation(_ invitation: HouseholdInvitation) async {
-        do {
-            try await invitationService.revokeInvitation(invitation.id)
-            if let index = invitations.firstIndex(where: { $0.id == invitation.id }) {
-                invitations[index].status = .revoked
-            }
-        } catch {
-            self.error = error.localizedDescription
-        }
-    }
-
-    func shareInvitation(_ invitation: HouseholdInvitation) {
-        guard let url = invitationService.generateInviteLink(for: invitation) else { return }
+        // Create a simple invite link with household ID
+        let inviteLink = "homerun://join?household=\(user.householdId.uuidString)"
 
         let activityVC = UIActivityViewController(
             activityItems: [
-                "Join my household on McCall Home!",
-                url
+                "Join my household on HomeRun! 🏠",
+                URL(string: inviteLink)!
             ],
             applicationActivities: nil
         )
@@ -317,6 +213,51 @@ class InvitationsViewModel: ObservableObject {
             rootVC.present(activityVC, animated: true)
         }
     }
+
+    func revokeInvitation(_ invitation: HouseholdInvitation) async {
+        do {
+            try await invitationService.revokeInvitation(invitation.id)
+            if let index = pendingInvitations.firstIndex(where: { $0.id == invitation.id }) {
+                pendingInvitations.remove(at: index)
+            }
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func leaveHousehold() async {
+        guard let user = authService.currentUser else { return }
+
+        do {
+            // Create a new household for the user
+            let newHouseholdId = UUID()
+            let newHousehold: [String: String] = [
+                "id": newHouseholdId.uuidString,
+                "name": "\(user.name)'s Household"
+            ]
+
+            try await supabase
+                .from("households")
+                .insert(newHousehold)
+                .execute()
+
+            // Update user's household_id to the new household
+            try await supabase
+                .from("users")
+                .update(["household_id": newHouseholdId.uuidString])
+                .eq("id", value: user.id.uuidString)
+                .execute()
+
+            // Refresh auth to get updated user data
+            await authService.checkSession()
+
+            // Reload data
+            await loadData()
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
 }
 
 #Preview {

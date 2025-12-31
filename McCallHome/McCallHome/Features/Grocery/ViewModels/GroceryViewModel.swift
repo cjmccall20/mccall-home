@@ -23,7 +23,7 @@ class GroceryViewModel: ObservableObject {
     @Published var endDate: Date
     @Published var useCustomDateRange = false
 
-    private let groceryService = GroceryService.shared
+    let groceryService = GroceryService.shared
     private let mealPlanService = MealPlanService.shared
     private let recipeService = RecipeService.shared
     private let ingredientPreferenceService = IngredientPreferenceService.shared
@@ -187,9 +187,20 @@ class GroceryViewModel: ObservableObject {
                 dateRange: (rangeStart, rangeEnd)
             )
 
-            // Add house staples to the grocery list
+            // Fetch the newly created list items to check for existing staples
+            await fetchCurrentList()
+
+            // Add house staples to the grocery list (only if not already present)
             if let listId = groceryList?.id {
+                // Get names of existing staple items (case-insensitive)
+                let existingStapleNames = Set(items.filter { $0.source == .staple }.map { $0.name.lowercased() })
+
                 for houseStaple in houseStaples {
+                    // Skip if this staple already exists in the list
+                    if existingStapleNames.contains(houseStaple.name.lowercased()) {
+                        continue
+                    }
+
                     try await groceryService.addHouseStapleItem(
                         name: houseStaple.name,
                         quantity: houseStaple.quantity,
@@ -199,6 +210,7 @@ class GroceryViewModel: ObservableObject {
                 }
             }
 
+            // Refresh again to get any newly added staples
             await fetchCurrentList()
         } catch {
             self.error = error.localizedDescription
@@ -383,6 +395,100 @@ class GroceryViewModel: ObservableObject {
         } catch {
             return []
         }
+    }
+
+    // MARK: - Staples Management
+
+    /// Remove all staple items from the current list
+    func removeAllStaples() async {
+        guard groceryList != nil else { return }
+
+        do {
+            let staplesToRemove = items.filter { $0.source == .staple }
+            for item in staplesToRemove {
+                try await groceryService.deleteItem(item)
+            }
+            items.removeAll { $0.source == .staple }
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    /// Add all house staples to the current list
+    func addAllStaples() async {
+        guard let listId = groceryList?.id, let householdId = householdId else { return }
+
+        do {
+            let houseStaples = try await houseStapleService.fetchActiveStaples(for: householdId)
+
+            // Get names of existing items (any source) to avoid duplicates
+            let existingNames = Set(items.map { $0.name.lowercased() })
+
+            for houseStaple in houseStaples {
+                // Skip if this item already exists in the list
+                if existingNames.contains(houseStaple.name.lowercased()) {
+                    continue
+                }
+
+                try await groceryService.addHouseStapleItem(
+                    name: houseStaple.name,
+                    quantity: houseStaple.quantity,
+                    category: mapHouseStapleCategory(houseStaple.category),
+                    to: listId
+                )
+            }
+
+            await fetchCurrentList()
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    // MARK: - Empty List Creation
+
+    /// Create an empty grocery list (without generating from meal plan)
+    func createEmptyList(weekStart: Date) async {
+        guard let householdId = householdId else { return }
+
+        isGenerating = true
+        error = nil
+
+        do {
+            groceryList = try await groceryService.createEmptyList(householdId: householdId, weekStart: weekStart)
+            await fetchCurrentList()
+        } catch {
+            self.error = error.localizedDescription
+        }
+
+        isGenerating = false
+    }
+
+    // MARK: - Week Helpers
+
+    var thisWeekDateRange: (start: Date, end: Date) {
+        let weekStart = Calendar.current.startOfWeek(for: Date())
+        let weekEnd = Calendar.current.date(byAdding: .day, value: 6, to: weekStart) ?? Date()
+        return (weekStart, weekEnd)
+    }
+
+    var nextWeekDateRange: (start: Date, end: Date) {
+        let thisWeekStart = Calendar.current.startOfWeek(for: Date())
+        let nextWeekStart = Calendar.current.date(byAdding: .day, value: 7, to: thisWeekStart) ?? Date()
+        let nextWeekEnd = Calendar.current.date(byAdding: .day, value: 6, to: nextWeekStart) ?? Date()
+        return (nextWeekStart, nextWeekEnd)
+    }
+
+    func formatDateRange(_ range: (start: Date, end: Date)) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d"
+        return "\(formatter.string(from: range.start)) - \(formatter.string(from: range.end))"
+    }
+
+    func generateForDateRange(_ range: (start: Date, end: Date)) async {
+        startDate = range.start
+        endDate = range.end
+        useCustomDateRange = true
+        await generateFromMealPlan()
     }
 
     // MARK: - List Completion

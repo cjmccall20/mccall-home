@@ -13,6 +13,8 @@ struct McCallHomeApp: App {
     @StateObject private var authViewModel = AuthViewModel()
     @StateObject private var appearanceManager = AppearanceManager.shared
     @State private var pendingInviteToken: String?
+    @State private var pendingHouseholdJoin: UUID?
+    @State private var showUpdatePassword = false
 
     var body: some Scene {
         WindowGroup {
@@ -32,6 +34,10 @@ struct McCallHomeApp: App {
                     await AuthService.shared.setupDevMode()
                 } else {
                     await authViewModel.checkSession()
+                    // Process any pending household join for returning users
+                    if authViewModel.isAuthenticated {
+                        await AuthService.shared.processPendingHouseholdJoin()
+                    }
                 }
             }
             .onOpenURL { url in
@@ -41,21 +47,36 @@ struct McCallHomeApp: App {
                 InviteAcceptView(token: token)
                     .environmentObject(authViewModel)
             }
+            .sheet(item: $pendingHouseholdJoin) { householdId in
+                JoinHouseholdView(householdId: householdId)
+                    .environmentObject(authViewModel)
+            }
+            .sheet(isPresented: $showUpdatePassword) {
+                UpdatePasswordView()
+                    .environmentObject(authViewModel)
+            }
         }
     }
 
     private func handleDeepLink(_ url: URL) {
-        // Handle invitation deep links: mccallhome://invite?token=xxx
-        guard url.scheme == "mccallhome" else { return }
+        // Handle deep links: homerun://invite?token=xxx or homerun://join?household=xxx or homerun://reset-password
+        guard url.scheme == "homerun" else { return }
+
+        let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
 
         switch url.host {
         case "invite":
-            if let token = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-                .queryItems?
-                .first(where: { $0.name == "token" })?
-                .value {
+            if let token = components?.queryItems?.first(where: { $0.name == "token" })?.value {
                 pendingInviteToken = token
             }
+        case "join":
+            if let householdIdString = components?.queryItems?.first(where: { $0.name == "household" })?.value,
+               let householdId = UUID(uuidString: householdIdString) {
+                pendingHouseholdJoin = householdId
+            }
+        case "reset-password":
+            // User clicked password reset link - show update password sheet
+            showUpdatePassword = true
         default:
             break
         }
@@ -65,4 +86,9 @@ struct McCallHomeApp: App {
 // Make String identifiable for sheet binding
 extension String: @retroactive Identifiable {
     public var id: String { self }
+}
+
+// Make UUID identifiable for sheet binding
+extension UUID: @retroactive Identifiable {
+    public var id: UUID { self }
 }

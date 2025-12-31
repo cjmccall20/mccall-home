@@ -20,7 +20,7 @@ enum Config {
 
     // MARK: - Development Mode
     // Set to true to auto-sign-in with dev credentials (no manual login needed)
-    static let skipAuthForDevelopment = true
+    static let skipAuthForDevelopment = false
 
     // Dev account credentials - auto signs in so RLS policies work
     // Use your real Supabase account here

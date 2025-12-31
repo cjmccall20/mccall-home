@@ -64,6 +64,24 @@ class MealPlanTemplateService {
             .execute()
     }
 
+    /// Duplicate a template with a new name
+    func copyTemplate(_ template: MealPlanTemplate, newName: String) async throws -> MealPlanTemplate {
+        let copy = MealPlanTemplate(
+            id: UUID(),
+            householdId: template.householdId,
+            name: newName,
+            entries: template.entries,
+            isRotating: false,  // Don't copy rotation status
+            rotationOrder: nil,
+            notes: template.notes,
+            createdAt: Date(),
+            updatedAt: Date()
+        )
+
+        try await createTemplate(copy)
+        return copy
+    }
+
     // MARK: - Template Operations
 
     /// Save the current week as a template

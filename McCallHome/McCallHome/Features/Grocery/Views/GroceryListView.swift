@@ -56,23 +56,39 @@ struct GroceryListView: View {
                     Menu {
                         Button {
                             if viewModel.checkedCount > 0 {
-                                // Warn user about regenerating mid-shopping
                                 pendingRegenerateAction = {
-                                    viewModel.resetToCurrentWeek()
                                     Task {
-                                        await viewModel.generateFromMealPlan()
+                                        await viewModel.generateForDateRange(viewModel.thisWeekDateRange)
                                     }
                                 }
                                 showRegenerateConfirmation = true
                             } else {
-                                viewModel.resetToCurrentWeek()
                                 Task {
-                                    await viewModel.generateFromMealPlan()
+                                    await viewModel.generateForDateRange(viewModel.thisWeekDateRange)
                                 }
                             }
                         } label: {
-                            Label("This Week", systemImage: "calendar")
+                            Label("This Week (\(viewModel.formatDateRange(viewModel.thisWeekDateRange)))", systemImage: "calendar")
                         }
+
+                        Button {
+                            if viewModel.checkedCount > 0 {
+                                pendingRegenerateAction = {
+                                    Task {
+                                        await viewModel.generateForDateRange(viewModel.nextWeekDateRange)
+                                    }
+                                }
+                                showRegenerateConfirmation = true
+                            } else {
+                                Task {
+                                    await viewModel.generateForDateRange(viewModel.nextWeekDateRange)
+                                }
+                            }
+                        } label: {
+                            Label("Next Week (\(viewModel.formatDateRange(viewModel.nextWeekDateRange)))", systemImage: "calendar.badge.plus")
+                        }
+
+                        Divider()
 
                         Button {
                             if viewModel.checkedCount > 0 {
@@ -171,9 +187,6 @@ struct GroceryListView: View {
             .task {
                 await viewModel.fetchCurrentList()
                 await viewModel.fetchPreviousItems()
-            }
-            .refreshable {
-                await viewModel.fetchCurrentList()
             }
             .sheet(isPresented: $showAddItem) {
                 AddGroceryItemView(viewModel: viewModel) {
@@ -328,30 +341,61 @@ struct GroceryListView: View {
                 .font(.title2)
                 .fontWeight(.semibold)
 
-            Text("Generate a grocery list from your meal plan")
+            Text("Generate a grocery list from your meal plan or start an empty list")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal)
 
             VStack(spacing: 12) {
+                // This Week button with dates
                 Button {
-                    viewModel.resetToCurrentWeek()
-                    Task {
-                        await viewModel.generateFromMealPlan()
+                    if viewModel.checkedCount > 0 {
+                        pendingRegenerateAction = {
+                            Task {
+                                await viewModel.generateForDateRange(viewModel.thisWeekDateRange)
+                            }
+                        }
+                        showRegenerateConfirmation = true
+                    } else {
+                        Task {
+                            await viewModel.generateForDateRange(viewModel.thisWeekDateRange)
+                        }
                     }
                 } label: {
                     if viewModel.isGenerating {
                         ProgressView()
                             .padding(.horizontal)
                     } else {
-                        Label("This Week", systemImage: "calendar")
+                        Text("This Week (\(viewModel.formatDateRange(viewModel.thisWeekDateRange)))")
                             .frame(minWidth: 200)
                     }
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(viewModel.isGenerating)
 
+                // Next Week button with dates
+                Button {
+                    if viewModel.checkedCount > 0 {
+                        pendingRegenerateAction = {
+                            Task {
+                                await viewModel.generateForDateRange(viewModel.nextWeekDateRange)
+                            }
+                        }
+                        showRegenerateConfirmation = true
+                    } else {
+                        Task {
+                            await viewModel.generateForDateRange(viewModel.nextWeekDateRange)
+                        }
+                    }
+                } label: {
+                    Text("Next Week (\(viewModel.formatDateRange(viewModel.nextWeekDateRange)))")
+                        .frame(minWidth: 200)
+                }
+                .buttonStyle(.bordered)
+                .disabled(viewModel.isGenerating)
+
+                // Custom date range
                 Button {
                     showDateRangePicker = true
                 } label: {
@@ -359,6 +403,22 @@ struct GroceryListView: View {
                         .frame(minWidth: 200)
                 }
                 .buttonStyle(.bordered)
+                .disabled(viewModel.isGenerating)
+
+                Divider()
+                    .padding(.vertical, 8)
+
+                // Start empty list button
+                Button {
+                    Task {
+                        await viewModel.createEmptyList(weekStart: viewModel.thisWeekDateRange.start)
+                    }
+                } label: {
+                    Label("Start Grocery List", systemImage: "plus.circle")
+                        .frame(minWidth: 200)
+                }
+                .buttonStyle(.bordered)
+                .tint(.green)
                 .disabled(viewModel.isGenerating)
             }
 
@@ -393,21 +453,69 @@ struct GroceryListView: View {
                             )
                         }
                     } header: {
-                        HStack {
-                            Image(systemName: sourceGroup.source.iconName)
-                                .font(.caption)
-                            Text(sourceGroup.source.displayName)
-                                .font(.caption)
-                                .fontWeight(.semibold)
-                            Spacer()
-                        }
-                        .padding(.horizontal)
-                        .padding(.vertical, 8)
-                        .background(sourceGroup.source.backgroundColor)
+                        sourceHeaderView(for: sourceGroup.source)
                     }
+                }
+
+                // Show "Add Staples" button if no staples present
+                if !viewModel.groupedBySource.contains(where: { $0.source == .staple }) {
+                    Button {
+                        Task {
+                            await viewModel.addAllStaples()
+                        }
+                    } label: {
+                        HStack {
+                            Image(systemName: "star")
+                                .font(.caption)
+                            Text("Add Weekly Staples")
+                                .font(.caption)
+                                .fontWeight(.medium)
+                            Spacer()
+                            Image(systemName: "plus.circle")
+                                .font(.caption)
+                        }
+                        .foregroundStyle(.purple)
+                        .padding(.horizontal)
+                        .padding(.vertical, 12)
+                        .background(Color.purple.opacity(0.1))
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func sourceHeaderView(for source: GroceryItem.Source) -> some View {
+        HStack {
+            Image(systemName: source.iconName)
+                .font(.caption)
+            Text(source.displayName)
+                .font(.caption)
+                .fontWeight(.semibold)
+            Spacer()
+
+            // Show toggle for staples section
+            if source == .staple {
+                Button {
+                    Task {
+                        await viewModel.removeAllStaples()
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "xmark.circle")
+                            .font(.caption2)
+                        Text("Remove All")
+                            .font(.caption2)
+                    }
+                    .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+        .background(source.backgroundColor)
     }
 }
 

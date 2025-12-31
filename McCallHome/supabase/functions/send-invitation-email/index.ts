@@ -29,7 +29,6 @@ serve(async (req) => {
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
-    const APP_URL = Deno.env.get('APP_URL') || 'https://mccallhome.app'
 
     if (!RESEND_API_KEY) {
       return new Response(
@@ -40,31 +39,56 @@ serve(async (req) => {
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
-    // Fetch invitation details
+    // Fetch invitation details (simplified query)
     const { data: invitation, error: inviteError } = await supabase
       .from('household_invitations')
-      .select(`
-        id,
-        email,
-        token,
-        expires_at,
-        household:households(name),
-        inviter:users!invited_by(name)
-      `)
+      .select('id, email, token, expires_at, household_id, invited_by')
       .eq('id', invitation_id)
       .single()
 
-    if (inviteError || !invitation) {
+    if (inviteError) {
+      console.error('Invitation fetch error:', inviteError)
+      return new Response(
+        JSON.stringify({ success: false, error: `Invitation fetch error: ${inviteError.message}` }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 404 }
+      )
+    }
+
+    if (!invitation) {
       return new Response(
         JSON.stringify({ success: false, error: 'Invitation not found' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 404 }
       )
     }
 
-    const householdName = invitation.household?.name || 'a household'
-    const inviterName = invitation.inviter?.name || 'Someone'
-    const inviteLink = `${APP_URL}/invite?token=${invitation.token}`
-    const deepLink = `mccallhome://invite?token=${invitation.token}`
+    // Fetch household name separately
+    let householdName = 'a household'
+    if (invitation.household_id) {
+      const { data: household } = await supabase
+        .from('households')
+        .select('name')
+        .eq('id', invitation.household_id)
+        .single()
+      if (household?.name) {
+        householdName = household.name
+      }
+    }
+
+    // Fetch inviter name separately
+    let inviterName = 'Someone'
+    if (invitation.invited_by) {
+      const { data: inviter } = await supabase
+        .from('users')
+        .select('name')
+        .eq('id', invitation.invited_by)
+        .single()
+      if (inviter?.name) {
+        inviterName = inviter.name
+      }
+    }
+
+    const inviteLink = `https://homerun.app/invite?token=${invitation.token}`
+    const deepLink = `homerun://invite?token=${invitation.token}`
 
     // Build email HTML
     const emailHtml = buildInvitationEmailHtml({
@@ -83,15 +107,16 @@ serve(async (req) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: 'McCall Home <noreply@mccallhome.app>',
+        from: 'HomeRun <onboarding@resend.dev>',  // Use Resend test domain until mccallhome.app is verified
         to: [invitation.email],
-        subject: `${inviterName} invited you to join ${householdName} on McCall Home`,
+        subject: `${inviterName} invited you to join ${householdName} on HomeRun`,
         html: emailHtml,
       }),
     })
 
     if (!response.ok) {
       const errorData = await response.text()
+      console.error('Resend API error:', errorData)
       return new Response(
         JSON.stringify({ success: false, error: `Failed to send email: ${errorData}` }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
@@ -231,11 +256,11 @@ function buildInvitationEmailHtml(data: {
 
     <div class="message">
       <p>Hi there!</p>
-      <p><strong>${inviterName}</strong> has invited you to join <strong>${householdName}</strong> on McCall Home, the household management app.</p>
+      <p><strong>${inviterName}</strong> has invited you to join <strong>${householdName}</strong> on HomeRun, the household management app.</p>
     </div>
 
     <div class="features">
-      <p style="font-weight: 600; margin-bottom: 12px;">With McCall Home, you can:</p>
+      <p style="font-weight: 600; margin-bottom: 12px;">With HomeRun, you can:</p>
       <div class="feature">
         <span class="feature-icon">📅</span>
         <span>Plan meals together as a family</span>
@@ -273,7 +298,7 @@ function buildInvitationEmailHtml(data: {
     </p>
 
     <div class="footer">
-      <p>McCall Home - Your Household Hub</p>
+      <p>HomeRun - Household Management Made Easy</p>
       <p>If you didn't expect this invitation, you can safely ignore this email.</p>
     </div>
   </div>

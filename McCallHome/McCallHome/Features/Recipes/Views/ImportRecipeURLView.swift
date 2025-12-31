@@ -120,7 +120,7 @@ struct ImportRecipeURLView: View {
             }
 
             Section("Ingredients (\(scraped.ingredients.count))") {
-                ForEach(Array(scraped.ingredients.enumerated()), id: \.offset) { index, ingredient in
+                ForEach(scraped.ingredients.enumerated(), id: \.offset) { index, ingredient in
                     Text(formatIngredient(ingredient))
                         .font(.subheadline)
                 }
