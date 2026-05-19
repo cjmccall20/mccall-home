@@ -42,14 +42,14 @@ struct ImportRecipeURLView: View {
     private var inputView: some View {
         Form {
             Section {
-                TextField("Recipe URL", text: $url)
+                TextField("Recipe URL or TikTok link", text: $url)
                     .keyboardType(.URL)
                     .autocapitalization(.none)
                     .autocorrectionDisabled()
             } header: {
                 Text("Enter URL")
             } footer: {
-                Text("Paste a URL from a recipe website. We'll try to extract the recipe details automatically.")
+                Text("Paste a recipe website URL or a TikTok video link. For TikTok we'll pull the caption and the spoken transcript to build the recipe.")
             }
 
             if let error = viewModel.scraperError {
@@ -82,10 +82,12 @@ struct ImportRecipeURLView: View {
             ProgressView()
                 .scaleEffect(1.5)
 
-            Text("Importing recipe...")
+            Text(RecipeService.isTikTokURL(url) ? "Pulling recipe from TikTok..." : "Importing recipe...")
                 .font(.headline)
 
-            Text("This may take a few seconds")
+            Text(RecipeService.isTikTokURL(url)
+                 ? "Reading the caption and video transcript"
+                 : "This may take a few seconds")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

@@ -132,10 +132,21 @@ class RecipeService {
         let error: String?
     }
 
-    /// Scrape a recipe from a URL using the Edge Function
+    /// Returns true for any tiktok.com / vm.tiktok.com / vt.tiktok.com link.
+    nonisolated static func isTikTokURL(_ urlString: String) -> Bool {
+        guard let host = URL(string: urlString)?.host?.lowercased() else { return false }
+        return host == "tiktok.com"
+            || host.hasSuffix(".tiktok.com")
+            || host == "vm.tiktok.com"
+            || host == "vt.tiktok.com"
+    }
+
+    /// Scrape a recipe from a URL using the Edge Function.
+    /// Auto-routes TikTok URLs to the `scrape-tiktok-recipe` function,
+    /// and everything else to the standard Firecrawl-based `scrape-recipe` function.
     func scrapeRecipe(from url: String) async throws -> ScrapedRecipeData {
-        // Call the Edge Function
-        let functionUrl = Config.supabaseURL.appendingPathComponent("functions/v1/scrape-recipe")
+        let functionName = Self.isTikTokURL(url) ? "scrape-tiktok-recipe" : "scrape-recipe"
+        let functionUrl = Config.supabaseURL.appendingPathComponent("functions/v1/\(functionName)")
 
         var request = URLRequest(url: functionUrl)
         request.httpMethod = "POST"

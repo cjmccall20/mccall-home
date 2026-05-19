@@ -3,3 +3,7 @@
 [scrape-recipe]
 # Disable JWT verification since we're in dev mode and using anon key only
 verify_jwt = false
+
+[scrape-tiktok-recipe]
+# Disable JWT verification since we're in dev mode and using anon key only
+verify_jwt = false
