@@ -70,7 +70,7 @@ serve(async (req) => {
   } catch (error) {
     console.error('Error:', error)
     return new Response(
-      JSON.stringify({ success: false, error: error.message }),
+      JSON.stringify({ success: false, error: error instanceof Error ? error.message : String(error) }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
     )
   }
@@ -166,6 +166,10 @@ Output ONLY the JSON object, no explanation.`
 
   if (!content) {
     throw new Error('No content in Claude response')
+  }
+
+  if (data.stop_reason === 'max_tokens') {
+    throw new Error('Grocery list too long to generate - try fewer recipes at once')
   }
 
   // Parse JSON (prepend the prefill we used)

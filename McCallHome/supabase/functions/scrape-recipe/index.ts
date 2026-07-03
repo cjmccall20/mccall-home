@@ -151,7 +151,7 @@ serve(async (req) => {
   } catch (error) {
     console.error('Error:', error)
     return new Response(
-      JSON.stringify({ success: false, error: error.message }),
+      JSON.stringify({ success: false, error: error instanceof Error ? error.message : String(error) }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
     )
   }
@@ -233,25 +233,26 @@ If no recipe found: {"error":"No recipe found"}`
     }
 
     const data = await response.json()
-    const content = data.content?.[0]?.text
+    const responseText = data.content?.[0]?.text
 
-    if (!content) {
+    if (!responseText) {
       console.error('No content in Claude response')
       return null
     }
 
-    // Parse the JSON response
-    // Prepend the "{" that we used as prefill, then handle markdown code blocks
-    let jsonStr = '{' + content.trim()
-    if (jsonStr.startsWith('{```json')) {
-      jsonStr = jsonStr.slice(8)
-    } else if (jsonStr.startsWith('{```')) {
-      jsonStr = jsonStr.slice(4)
+    if (data.stop_reason === 'max_tokens') {
+      throw new Error('This recipe is too long to parse - try a page with a shorter recipe')
     }
-    if (jsonStr.endsWith('```')) {
-      jsonStr = jsonStr.slice(0, -3)
+
+    // Prepend the "{" prefill, strip any markdown code fences, then parse
+    // the first balanced JSON object so stray trailing text can't break us
+    const defenced = ('{' + responseText).replace(/```(?:json)?/g, '').trim()
+    const jsonStr = extractFirstJsonObject(defenced)
+
+    if (!jsonStr) {
+      console.error('No JSON object in Claude response')
+      return null
     }
-    jsonStr = jsonStr.trim()
 
     const parsed = JSON.parse(jsonStr)
 
@@ -278,4 +279,43 @@ If no recipe found: {"error":"No recipe found"}`
     console.error('Error calling Claude API:', error)
     throw error // Re-throw to get error details in response
   }
+}
+
+/**
+ * Return the first balanced {...} object in the string, tracking strings
+ * and escapes so braces inside values don't fool the counter.
+ */
+export function extractFirstJsonObject(text: string): string | null {
+  const start = text.indexOf('{')
+  if (start === -1) return null
+
+  let depth = 0
+  let inString = false
+  let escaped = false
+
+  for (let i = start; i < text.length; i++) {
+    const char = text[i]
+
+    if (escaped) {
+      escaped = false
+      continue
+    }
+    if (char === '\\') {
+      if (inString) escaped = true
+      continue
+    }
+    if (char === '"') {
+      inString = !inString
+      continue
+    }
+    if (inString) continue
+
+    if (char === '{') depth++
+    else if (char === '}') {
+      depth--
+      if (depth === 0) return text.slice(start, i + 1)
+    }
+  }
+
+  return null
 }

@@ -9,7 +9,7 @@ const corsHeaders = {
 interface MealPlanEntry {
   id: string
   meal_type: string
-  recipe?: { name: string }
+  recipe?: { title: string }
   restaurant?: { name: string }
   assigned_to?: string
   household_member?: { name: string }
@@ -82,7 +82,7 @@ serve(async (req) => {
         results.push({
           household_id: householdSettings.household_id,
           success: false,
-          error: error.message,
+          error: error instanceof Error ? error.message : String(error),
         })
       }
     }
@@ -95,7 +95,7 @@ serve(async (req) => {
   } catch (error) {
     console.error('Error:', error)
     return new Response(
-      JSON.stringify({ success: false, error: error.message }),
+      JSON.stringify({ success: false, error: error instanceof Error ? error.message : String(error) }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
     )
   }
@@ -122,9 +122,16 @@ async function sendMorningEmailForHousehold(
 
   const householdName = household?.name || 'Your Household'
 
-  // Get today's date in household timezone
+  // Get today's date in the household's timezone (the cron fires in UTC,
+  // which can be a different calendar day than the household's morning)
+  const timeZone = settings.timezone || 'UTC'
   const today = new Date()
-  const dateStr = today.toISOString().split('T')[0]
+  const dateStr = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(today) // en-CA yields YYYY-MM-DD
 
   // Fetch today's meals
   const { data: meals } = await supabase
@@ -132,7 +139,7 @@ async function sendMorningEmailForHousehold(
     .select(`
       id,
       meal_type,
-      recipe:recipes(name),
+      recipe:recipes(title),
       restaurant:restaurants(name),
       assigned_to,
       household_member:household_members(name)
@@ -152,23 +159,25 @@ async function sendMorningEmailForHousehold(
       assigned_to:household_members(name)
     `)
     .eq('household_id', householdId)
-    .eq('is_completed', false)
+    .eq('is_complete', false)
     .or(`due_date.eq.${dateStr},due_date.lt.${dateStr}`)
     .order('due_date')
 
-  // Fetch calendar events for today (if calendar is connected)
+  // Fetch calendar events for the household's local day
+  const [dayStartUtc, dayEndUtc] = zonedDayRangeUtc(dateStr, timeZone)
   const { data: calendarEvents } = await supabase
     .from('calendar_events')
     .select('*')
     .eq('household_id', householdId)
-    .gte('start_time', `${dateStr}T00:00:00`)
-    .lt('start_time', `${dateStr}T23:59:59`)
+    .gte('start_time', dayStartUtc)
+    .lt('start_time', dayEndUtc)
     .order('start_time')
 
   // Build email HTML
   const emailHtml = buildMorningEmailHtml({
     householdName,
     date: today,
+    timeZone,
     meals: meals || [],
     tasks: tasks || [],
     calendarEvents: calendarEvents || [],
@@ -184,7 +193,7 @@ async function sendMorningEmailForHousehold(
     body: JSON.stringify({
       from: 'McCall Home <noreply@mccallhome.app>',
       to: recipients,
-      subject: `Good Morning from ${householdName} - ${formatDate(today)}`,
+      subject: `Good Morning from ${householdName} - ${formatDate(today, timeZone)}`,
       html: emailHtml,
     }),
   })
@@ -200,11 +209,12 @@ async function sendMorningEmailForHousehold(
 function buildMorningEmailHtml(data: {
   householdName: string
   date: Date
+  timeZone: string
   meals: MealPlanEntry[]
   tasks: HoneydewTask[]
   calendarEvents: CalendarEvent[]
 }): string {
-  const { householdName, date, meals, tasks, calendarEvents } = data
+  const { householdName, date, timeZone, meals, tasks, calendarEvents } = data
 
   const mealTypeOrder = { breakfast: 1, lunch: 2, dinner: 3 }
   const sortedMeals = [...meals].sort((a, b) =>
@@ -237,13 +247,13 @@ function buildMorningEmailHtml(data: {
 </head>
 <body>
   <h1>Good Morning!</h1>
-  <p class="date">${formatDate(date)}</p>
+  <p class="date">${formatDate(date, timeZone)}</p>
 
   <h2>Today's Meals</h2>
   ${sortedMeals.length > 0 ? sortedMeals.map(meal => `
     <div class="meal">
       <div class="meal-type">${meal.meal_type}</div>
-      <div class="meal-name">${meal.recipe?.name || meal.restaurant?.name || 'TBD'}</div>
+      <div class="meal-name">${meal.recipe?.title || meal.restaurant?.name || 'TBD'}</div>
       ${meal.household_member ? `<div class="meal-chef">Chef: ${meal.household_member.name}</div>` : ''}
     </div>
   `).join('') : '<p class="empty">No meals planned for today</p>'}
@@ -260,7 +270,7 @@ function buildMorningEmailHtml(data: {
     <h2>Calendar</h2>
     ${calendarEvents.map(event => `
       <div class="event">
-        <div class="event-time">${formatTime(event.start_time)}</div>
+        <div class="event-time">${formatTime(event.start_time, timeZone)}</div>
         <div>${event.title}</div>
       </div>
     `).join('')}
@@ -275,8 +285,9 @@ function buildMorningEmailHtml(data: {
   `
 }
 
-function formatDate(date: Date): string {
+function formatDate(date: Date, timeZone: string): string {
   return date.toLocaleDateString('en-US', {
+    timeZone,
     weekday: 'long',
     year: 'numeric',
     month: 'long',
@@ -284,11 +295,53 @@ function formatDate(date: Date): string {
   })
 }
 
-function formatTime(isoString: string): string {
+function formatTime(isoString: string, timeZone: string): string {
   const date = new Date(isoString)
   return date.toLocaleTimeString('en-US', {
+    timeZone,
     hour: 'numeric',
     minute: '2-digit',
     hour12: true,
   })
+}
+
+/**
+ * UTC instants for [local midnight, next local midnight) of the given
+ * YYYY-MM-DD in the given IANA timezone. Returned as ISO strings for
+ * comparing against timestamptz columns.
+ */
+function zonedDayRangeUtc(dateStr: string, timeZone: string): [string, string] {
+  const [year, month, day] = dateStr.split('-').map(Number)
+  const utcMidnight = Date.UTC(year, month - 1, day)
+  const offsetMs = tzOffsetMs(new Date(utcMidnight), timeZone)
+  const start = new Date(utcMidnight - offsetMs)
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000)
+  return [start.toISOString(), end.toISOString()]
+}
+
+/** Offset of the given timezone from UTC at the given instant. */
+function tzOffsetMs(date: Date, timeZone: string): number {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    })
+      .formatToParts(date)
+      .map((part) => [part.type, part.value])
+  )
+  const asUtc = Date.UTC(
+    Number(parts.year),
+    Number(parts.month) - 1,
+    Number(parts.day),
+    Number(parts.hour) % 24,
+    Number(parts.minute),
+    Number(parts.second)
+  )
+  return asUtc - date.getTime()
 }
