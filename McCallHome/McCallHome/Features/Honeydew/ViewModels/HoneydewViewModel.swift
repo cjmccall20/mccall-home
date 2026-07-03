@@ -250,15 +250,25 @@ class HoneydewViewModel: ObservableObject {
             return calendar.date(byAdding: .weekOfYear, value: 1, to: date)
         case .monthly:
             if let dayOfMonth = rule.dayOfMonth {
-                // Find next occurrence of that day in a future month
-                var components = calendar.dateComponents([.year, .month], from: date)
-                components.day = dayOfMonth
-                if let nextDate = calendar.date(from: components), nextDate > date {
-                    return nextDate
+                // Find the next month where the (clamped) target day is in the
+                // future. Clamping keeps "day 31" rules valid in short months
+                // instead of producing nil or rolling into the next month.
+                var monthComponents = calendar.dateComponents([.year, .month], from: date)
+                monthComponents.day = 1
+                guard var firstOfMonth = calendar.date(from: monthComponents) else {
+                    return calendar.date(byAdding: .month, value: 1, to: date)
                 }
-                // Move to next month
-                components.month! += 1
-                return calendar.date(from: components)
+
+                for _ in 0..<2 {
+                    if let daysInMonth = calendar.range(of: .day, in: .month, for: firstOfMonth)?.count,
+                       let candidate = calendar.date(byAdding: .day, value: min(dayOfMonth, daysInMonth) - 1, to: firstOfMonth),
+                       candidate > date {
+                        return candidate
+                    }
+                    guard let nextMonth = calendar.date(byAdding: .month, value: 1, to: firstOfMonth) else { break }
+                    firstOfMonth = nextMonth
+                }
+                return calendar.date(byAdding: .month, value: 1, to: date)
             }
             return calendar.date(byAdding: .month, value: 1, to: date)
         }
@@ -273,6 +283,18 @@ class HoneydewViewModel: ObservableObject {
         let createdBy: UUID? = Config.skipAuthForDevelopment ? nil : authService.currentUser?.id
 
         let nextDueDate = calculateNextOccurrence(from: dueDate, rule: rule)
+
+        // Re-completing (uncheck then check again) must not spawn a duplicate:
+        // skip if an open task with the same title already sits on that date
+        if let nextDueDate = nextDueDate,
+           tasks.contains(where: { candidate in
+               !candidate.isComplete
+                   && candidate.id != task.id
+                   && candidate.title == task.title
+                   && candidate.dueDate.map { Calendar.current.isDate($0, inSameDayAs: nextDueDate) } == true
+           }) {
+            return
+        }
 
         let newTask = HoneydewTask(
             id: UUID(),
@@ -296,6 +318,7 @@ class HoneydewViewModel: ObservableObject {
         do {
             try await taskService.createTask(newTask)
         } catch {
+            self.error = "Completed, but couldn't schedule the next occurrence of \"\(task.title)\"."
             print("Failed to create next occurrence: \(error)")
         }
     }

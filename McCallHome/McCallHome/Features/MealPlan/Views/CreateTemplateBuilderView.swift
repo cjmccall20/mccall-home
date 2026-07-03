@@ -327,7 +327,7 @@ struct TemplateDayPlanView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 6))
             } else {
                 // Has entries - tap to view detail
-                ForEach(slotEntries.enumerated(), id: \.element.id) { index, entry in
+                ForEach(Array(slotEntries.enumerated()), id: \.element.id) { index, entry in
                     HStack(spacing: 8) {
                         // Only show meal icon on first entry
                         if index == 0 {

@@ -62,6 +62,19 @@ class GoogleCalendarService: NSObject, ObservableObject {
         calendars = []
     }
 
+    // MARK: - URL Building
+
+    /// Percent-encode a path component. Google calendar IDs contain '@' and
+    /// sometimes '#', which would truncate an interpolated URL as a fragment.
+    private func encodedPathComponent(_ value: String) throws -> String {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "/#?")
+        guard let encoded = value.addingPercentEncoding(withAllowedCharacters: allowed) else {
+            throw GoogleCalendarError.apiError("Invalid calendar or event identifier")
+        }
+        return encoded
+    }
+
     // MARK: - Calendar List
 
     /// Fetch user's calendars
@@ -118,7 +131,9 @@ class GoogleCalendarService: NSObject, ObservableObject {
             throw GoogleCalendarError.invalidTime
         }
 
-        let endDate = calendar.date(byAdding: .minute, value: duration, to: startDate)!
+        guard let endDate = calendar.date(byAdding: .minute, value: duration, to: startDate) else {
+            throw GoogleCalendarError.invalidTime
+        }
 
         let event = GoogleCalendarEvent(
             summary: title,
@@ -126,7 +141,10 @@ class GoogleCalendarService: NSObject, ObservableObject {
             end: EventDateTime(dateTime: ISO8601DateFormatter().string(from: endDate))
         )
 
-        let url = URL(string: "https://www.googleapis.com/calendar/v3/calendars/\(calendarId)/events")!
+        let encodedCalendarId = try encodedPathComponent(calendarId)
+        guard let url = URL(string: "https://www.googleapis.com/calendar/v3/calendars/\(encodedCalendarId)/events") else {
+            throw GoogleCalendarError.apiError("Invalid calendar identifier")
+        }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
@@ -149,7 +167,11 @@ class GoogleCalendarService: NSObject, ObservableObject {
             throw GoogleCalendarError.notSignedIn
         }
 
-        let url = URL(string: "https://www.googleapis.com/calendar/v3/calendars/\(calendarId)/events/\(eventId)")!
+        let encodedCalendarId = try encodedPathComponent(calendarId)
+        let encodedEventId = try encodedPathComponent(eventId)
+        guard let url = URL(string: "https://www.googleapis.com/calendar/v3/calendars/\(encodedCalendarId)/events/\(encodedEventId)") else {
+            throw GoogleCalendarError.apiError("Invalid calendar or event identifier")
+        }
         var request = URLRequest(url: url)
         request.httpMethod = "DELETE"
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
@@ -176,7 +198,10 @@ class GoogleCalendarService: NSObject, ObservableObject {
         let timeMin = formatter.string(from: startDate)
         let timeMax = formatter.string(from: endDate)
 
-        var components = URLComponents(string: "https://www.googleapis.com/calendar/v3/calendars/\(calendarId)/events")!
+        let encodedCalendarId = try encodedPathComponent(calendarId)
+        guard var components = URLComponents(string: "https://www.googleapis.com/calendar/v3/calendars/\(encodedCalendarId)/events") else {
+            throw GoogleCalendarError.apiError("Invalid calendar identifier")
+        }
         components.queryItems = [
             URLQueryItem(name: "timeMin", value: timeMin),
             URLQueryItem(name: "timeMax", value: timeMax),
@@ -184,7 +209,10 @@ class GoogleCalendarService: NSObject, ObservableObject {
             URLQueryItem(name: "orderBy", value: "startTime")
         ]
 
-        var request = URLRequest(url: components.url!)
+        guard let url = components.url else {
+            throw GoogleCalendarError.apiError("Invalid calendar identifier")
+        }
+        var request = URLRequest(url: url)
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
 
         let (data, response) = try await URLSession.shared.data(for: request)

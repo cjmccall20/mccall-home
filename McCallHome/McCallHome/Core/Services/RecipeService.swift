@@ -75,7 +75,7 @@ class RecipeService {
             .from("recipes")
             .select()
             .eq("household_id", value: householdId.uuidString)
-            .ilike("title", pattern: "%\(query)%")
+            .ilike("title", pattern: "%\(query.escapedForILike)%")
             .execute()
             .value
         return response

@@ -138,7 +138,8 @@ class GroceryViewModel: ObservableObject {
         do {
             previousItems = try await groceryService.fetchPreviousItems(for: householdId)
         } catch {
-            // Silent fail - previous items are a convenience feature
+            // Convenience feature, so don't block the screen - but do tell the user
+            self.error = "Couldn't load your previous items. Pull to refresh to retry."
             print("Failed to fetch previous items: \(error)")
         }
     }
@@ -247,12 +248,16 @@ class GroceryViewModel: ObservableObject {
     }
 
     func toggleItem(_ item: GroceryItem) async {
+        // Optimistic update: flip immediately, revert if the network call fails
+        guard let index = items.firstIndex(where: { $0.id == item.id }) else { return }
+        items[index].isChecked.toggle()
+
         do {
             try await groceryService.toggleItem(item)
-            if let index = items.firstIndex(where: { $0.id == item.id }) {
-                items[index].isChecked.toggle()
-            }
         } catch {
+            if let revertIndex = items.firstIndex(where: { $0.id == item.id }) {
+                items[revertIndex].isChecked = item.isChecked
+            }
             self.error = error.localizedDescription
         }
     }

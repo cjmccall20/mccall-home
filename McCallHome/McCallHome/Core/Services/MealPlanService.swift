@@ -13,10 +13,13 @@ class MealPlanService {
     static let shared = MealPlanService()
     private init() {}
 
+    // Must match MealPlanEntry's encoder, which writes dates in the local
+    // timezone. Formatting local-midnight week bounds in UTC shifted the
+    // query window a day for timezones east of UTC.
     private let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
-        formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.timeZone = .current
         return formatter
     }()
 

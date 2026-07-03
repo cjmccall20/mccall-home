@@ -198,11 +198,12 @@ class InvitationsViewModel: ObservableObject {
 
         // Create a simple invite link with household ID
         let inviteLink = "homerun://join?household=\(user.householdId.uuidString)"
+        guard let inviteURL = URL(string: inviteLink) else { return }
 
         let activityVC = UIActivityViewController(
             activityItems: [
                 "Join my household on HomeRun! 🏠",
-                URL(string: inviteLink)!
+                inviteURL
             ],
             applicationActivities: nil
         )

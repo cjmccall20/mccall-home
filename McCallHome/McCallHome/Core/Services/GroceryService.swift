@@ -242,10 +242,11 @@ class GroceryService {
             .execute()
 
         var sortOrder = 0
+        var newItems: [GroceryItem] = []
 
         // First, add back the checked/purchased items (at the top)
         for item in checkedItemsToPreserve {
-            let newItem = GroceryItem(
+            newItems.append(GroceryItem(
                 id: UUID(),
                 groceryListId: newList.id,
                 name: item.name,
@@ -257,13 +258,7 @@ class GroceryService {
                 source: item.source,
                 fromRecipeId: item.fromRecipeId,
                 createdAt: Date()
-            )
-
-            try await supabase
-                .from("grocery_items")
-                .insert(newItem)
-                .execute()
-
+            ))
             sortOrder += 1
         }
 
@@ -275,7 +270,7 @@ class GroceryService {
             }
 
             let category = mapCategory(smartItem.category)
-            let item = GroceryItem(
+            newItems.append(GroceryItem(
                 id: UUID(),
                 groceryListId: newList.id,
                 name: smartItem.name,
@@ -287,19 +282,13 @@ class GroceryService {
                 source: .mealPlan,
                 fromRecipeId: nil,
                 createdAt: Date()
-            )
-
-            try await supabase
-                .from("grocery_items")
-                .insert(item)
-                .execute()
-
+            ))
             sortOrder += 1
         }
 
         // Re-add preserved manual items
         for item in manualItemsToPreserve {
-            let newItem = GroceryItem(
+            newItems.append(GroceryItem(
                 id: UUID(),
                 groceryListId: newList.id,
                 name: item.name,
@@ -311,14 +300,16 @@ class GroceryService {
                 source: item.source,
                 fromRecipeId: nil,
                 createdAt: Date()
-            )
+            ))
+            sortOrder += 1
+        }
 
+        // Single bulk insert instead of one round-trip per item
+        if !newItems.isEmpty {
             try await supabase
                 .from("grocery_items")
-                .insert(newItem)
+                .insert(newItems)
                 .execute()
-
-            sortOrder += 1
         }
 
         return newList
@@ -406,7 +397,9 @@ class GroceryService {
         }
 
         // Aggregate ingredients from all recipes in the meal plan (only entries with recipes)
-        var ingredientMap: [String: (quantity: Double?, unit: String?, category: GroceryItem.Category, recipeId: UUID?)] = [:]
+        // Keyed by name AND unit so "2 cups flour" + "3 tbsp flour" stay as
+        // two entries instead of the second requirement being dropped
+        var ingredientMap: [String: (name: String, quantity: Double?, unit: String?, category: GroceryItem.Category, recipeId: UUID?)] = [:]
 
         for entry in entriesToInclude {
             guard let recipeId = entry.recipeId,
@@ -417,27 +410,29 @@ class GroceryService {
                 : 1.0
 
             for ingredient in recipe.ingredients {
-                let key = ingredient.name.lowercased()
+                let name = ingredient.name.lowercased()
+                let key = "\(name)|\(ingredient.unit?.lowercased() ?? "")"
                 let adjustedQuantity = ingredient.quantity.map { $0 * servingMultiplier }
 
                 if let existing = ingredientMap[key] {
-                    // Combine quantities if same unit
-                    if existing.unit == ingredient.unit, let existingQty = existing.quantity, let newQty = adjustedQuantity {
-                        ingredientMap[key] = (existingQty + newQty, existing.unit, existing.category, existing.recipeId)
+                    if let existingQty = existing.quantity, let newQty = adjustedQuantity {
+                        ingredientMap[key] = (existing.name, existingQty + newQty, existing.unit, existing.category, existing.recipeId)
                     }
+                    // Same name+unit but no combinable quantities: keep the existing entry
                 } else {
-                    ingredientMap[key] = (adjustedQuantity, ingredient.unit, categorize(ingredient.name), recipeId)
+                    ingredientMap[key] = (name, adjustedQuantity, ingredient.unit, categorize(ingredient.name), recipeId)
                 }
             }
         }
 
         // Create grocery items from meal plan
         var sortOrder = 0
-        for (name, info) in ingredientMap.sorted(by: { $0.value.category.sortOrder < $1.value.category.sortOrder }) {
-            let item = GroceryItem(
+        var newItems: [GroceryItem] = []
+        for (_, info) in ingredientMap.sorted(by: { $0.value.category.sortOrder < $1.value.category.sortOrder }) {
+            newItems.append(GroceryItem(
                 id: UUID(),
                 groceryListId: newList.id,
-                name: name.capitalized,
+                name: info.name.capitalized,
                 quantity: info.quantity,
                 unit: info.unit,
                 category: info.category,
@@ -446,19 +441,13 @@ class GroceryService {
                 source: .mealPlan,
                 fromRecipeId: info.recipeId,
                 createdAt: Date()
-            )
-
-            try await supabase
-                .from("grocery_items")
-                .insert(item)
-                .execute()
-
+            ))
             sortOrder += 1
         }
 
         // Re-add preserved manual items
         for item in manualItemsToPreserve {
-            let newItem = GroceryItem(
+            newItems.append(GroceryItem(
                 id: UUID(),
                 groceryListId: newList.id,
                 name: item.name,
@@ -470,14 +459,16 @@ class GroceryService {
                 source: item.source,
                 fromRecipeId: nil,
                 createdAt: Date()
-            )
+            ))
+            sortOrder += 1
+        }
 
+        // Single bulk insert instead of one round-trip per item
+        if !newItems.isEmpty {
             try await supabase
                 .from("grocery_items")
-                .insert(newItem)
+                .insert(newItems)
                 .execute()
-
-            sortOrder += 1
         }
 
         return newList
@@ -763,7 +754,7 @@ class GroceryService {
             .from("previous_grocery_items")
             .select()
             .eq("household_id", value: householdId.uuidString)
-            .ilike("name", pattern: "%\(query)%")
+            .ilike("name", pattern: "%\(query.escapedForILike)%")
             .order("times_used", ascending: false)
             .limit(20)
             .execute()
@@ -777,7 +768,7 @@ class GroceryService {
             .from("previous_grocery_items")
             .select()
             .eq("household_id", value: householdId.uuidString)
-            .ilike("name", pattern: name)
+            .ilike("name", pattern: name.escapedForILike)
             .limit(1)
             .execute()
             .value
