@@ -75,6 +75,8 @@ struct SignUpView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(authViewModel.isLoading)
+
+                OAuthButtonsView()
             }
             .padding(.horizontal)
 

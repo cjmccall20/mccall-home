@@ -34,3 +34,19 @@ site_url = "http://localhost:3000"
 additional_redirect_urls = ["https://localhost:3000"]
 jwt_expiry = 3600
 enable_signup = true
+
+# Native Sign in with Apple (signInWithIdToken). For the native flow the
+# client_id is the app's bundle identifier; no secret is required.
+[auth.external.apple]
+enabled = true
+client_id = "com.mccall.McCallHome"
+secret = ""
+
+# Native Google Sign-In (signInWithIdToken with the iOS client ID).
+# skip_nonce_check is required because the GoogleSignIn iOS SDK does not
+# support passing a custom nonce.
+[auth.external.google]
+enabled = true
+client_id = "243332420634-da474f55hp2hn68vkbvfbnjg9r0is1j2.apps.googleusercontent.com"
+secret = ""
+skip_nonce_check = true

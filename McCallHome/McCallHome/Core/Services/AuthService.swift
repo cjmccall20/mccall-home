@@ -8,6 +8,8 @@
 import Foundation
 import Combine
 import Supabase
+import GoogleSignIn
+import UIKit
 
 @MainActor
 class AuthService: ObservableObject {
@@ -125,6 +127,59 @@ class AuthService: ObservableObject {
 
         // Process any pending household join from deep link
         await processPendingHouseholdJoin()
+    }
+
+    // MARK: - OAuth Sign-In
+
+    /// Sign in with Apple. Pass the RAW nonce (Supabase hashes and compares
+    /// against the hashed nonce embedded in the identity token by Apple).
+    func signInWithApple(idToken: String, nonce: String, fullName: PersonNameComponents?) async throws {
+        try await supabase.auth.signInWithIdToken(
+            credentials: .init(provider: .apple, idToken: idToken, nonce: nonce)
+        )
+        // Apple only provides the name on the FIRST authorization; capture it
+        try await ensureUserProvisioned(preferredName: fullName?.formatted())
+        await processPendingHouseholdJoin()
+    }
+
+    /// Sign in with Google via the GoogleSignIn SDK, exchanging the Google
+    /// ID token for a Supabase session.
+    func signInWithGoogle(presenting viewController: UIViewController) async throws {
+        if GIDSignIn.sharedInstance.configuration == nil {
+            GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: Config.googleClientID)
+        }
+
+        let result = try await GIDSignIn.sharedInstance.signIn(withPresenting: viewController)
+
+        guard let idToken = result.user.idToken?.tokenString else {
+            throw AuthError.oauthFailed
+        }
+
+        try await supabase.auth.signInWithIdToken(
+            credentials: .init(
+                provider: .google,
+                idToken: idToken,
+                accessToken: result.user.accessToken.tokenString
+            )
+        )
+        try await ensureUserProvisioned(preferredName: result.user.profile?.name)
+        await processPendingHouseholdJoin()
+    }
+
+    /// After an OAuth sign-in, load the existing profile - or, for a first
+    /// sign-in, create a profile with its own fresh household.
+    private func ensureUserProvisioned(preferredName: String?) async throws {
+        do {
+            try await fetchCurrentUser()
+        } catch AuthError.userNotFound {
+            let session = try await supabase.auth.session
+            let email = session.user.email ?? ""
+            let fallbackName = email.split(separator: "@").first.map(String.init) ?? "New User"
+            let name = (preferredName?.isEmpty == false ? preferredName! : fallbackName)
+
+            currentUser = try await provisionUser(userId: session.user.id, name: name, email: email)
+            isAuthenticated = true
+        }
     }
 
     func signOut() async throws {
@@ -248,6 +303,7 @@ class AuthService: ObservableObject {
         case signUpFailed
         case noHouseholdFound
         case userNotFound
+        case oauthFailed
 
         var errorDescription: String? {
             switch self {
@@ -257,6 +313,8 @@ class AuthService: ObservableObject {
                 return "No household found to join"
             case .userNotFound:
                 return "User profile not found"
+            case .oauthFailed:
+                return "Sign-in failed. Please try again."
             }
         }
     }

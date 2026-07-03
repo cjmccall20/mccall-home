@@ -73,6 +73,8 @@ struct LoginView: View {
                 }
                 .font(.subheadline)
                 .foregroundStyle(.blue)
+
+                OAuthButtonsView()
             }
             .padding(.horizontal)
 

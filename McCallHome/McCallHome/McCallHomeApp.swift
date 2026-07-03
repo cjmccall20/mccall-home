@@ -7,6 +7,7 @@
 
 import SwiftUI
 import Supabase
+import GoogleSignIn
 
 @main
 struct McCallHomeApp: App {
@@ -15,6 +16,10 @@ struct McCallHomeApp: App {
     @State private var pendingInviteToken: String?
     @State private var pendingHouseholdJoin: UUID?
     @State private var showUpdatePassword = false
+
+    init() {
+        GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: Config.googleClientID)
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -41,6 +46,10 @@ struct McCallHomeApp: App {
                 }
             }
             .onOpenURL { url in
+                // Give the Google sign-in flow first crack at its callback URL
+                if GIDSignIn.sharedInstance.handle(url) {
+                    return
+                }
                 handleDeepLink(url)
             }
             .sheet(item: $pendingInviteToken) { token in
