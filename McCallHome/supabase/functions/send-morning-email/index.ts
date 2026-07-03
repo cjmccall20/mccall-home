@@ -216,7 +216,7 @@ function buildMorningEmailHtml(data: {
 }): string {
   const { householdName, date, timeZone, meals, tasks, calendarEvents } = data
 
-  const mealTypeOrder = { breakfast: 1, lunch: 2, dinner: 3 }
+  const mealTypeOrder: Record<string, number> = { breakfast: 1, lunch: 2, dinner: 3 }
   const sortedMeals = [...meals].sort((a, b) =>
     (mealTypeOrder[a.meal_type] || 99) - (mealTypeOrder[b.meal_type] || 99)
   )

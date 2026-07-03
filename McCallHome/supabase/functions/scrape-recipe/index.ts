@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { isTikTokUrl, fetchTikTokCaption, extractHashtags } from "./tiktok.ts"
+import { extractFirstJsonObject } from "./parsing.ts"
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -279,43 +280,4 @@ If no recipe found: {"error":"No recipe found"}`
     console.error('Error calling Claude API:', error)
     throw error // Re-throw to get error details in response
   }
-}
-
-/**
- * Return the first balanced {...} object in the string, tracking strings
- * and escapes so braces inside values don't fool the counter.
- */
-export function extractFirstJsonObject(text: string): string | null {
-  const start = text.indexOf('{')
-  if (start === -1) return null
-
-  let depth = 0
-  let inString = false
-  let escaped = false
-
-  for (let i = start; i < text.length; i++) {
-    const char = text[i]
-
-    if (escaped) {
-      escaped = false
-      continue
-    }
-    if (char === '\\') {
-      if (inString) escaped = true
-      continue
-    }
-    if (char === '"') {
-      inString = !inString
-      continue
-    }
-    if (inString) continue
-
-    if (char === '{') depth++
-    else if (char === '}') {
-      depth--
-      if (depth === 0) return text.slice(start, i + 1)
-    }
-  }
-
-  return null
 }

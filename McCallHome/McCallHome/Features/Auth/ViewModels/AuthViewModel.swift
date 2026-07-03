@@ -142,7 +142,7 @@ class AuthViewModel: ObservableObject {
         do {
             try await authService.signInWithGoogle(presenting: presenter)
             clearFields()
-        } catch GIDSignInError.canceled {
+        } catch let signInError as GIDSignInError where signInError.code == .canceled {
             // User dismissed the Google sheet - not an error
         } catch {
             self.error = error.localizedDescription
