@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 struct ImportRecipeURLView: View {
     @Environment(\.dismiss) private var dismiss
@@ -42,14 +43,28 @@ struct ImportRecipeURLView: View {
     private var inputView: some View {
         Form {
             Section {
-                TextField("Recipe URL", text: $url)
-                    .keyboardType(.URL)
-                    .autocapitalization(.none)
-                    .autocorrectionDisabled()
+                HStack {
+                    TextField("Recipe URL", text: $url)
+                        .keyboardType(.URL)
+                        .autocapitalization(.none)
+                        .autocorrectionDisabled()
+
+                    if UIPasteboard.general.hasStrings || UIPasteboard.general.hasURLs {
+                        Button {
+                            if let pasted = UIPasteboard.general.string {
+                                url = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
+                            }
+                        } label: {
+                            Image(systemName: "doc.on.clipboard")
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("Paste link")
+                    }
+                }
             } header: {
                 Text("Enter URL")
             } footer: {
-                Text("Paste a URL from a recipe website. We'll try to extract the recipe details automatically.")
+                Text("Paste a link from a recipe website or TikTok. We'll extract the recipe details automatically. For TikTok, the recipe needs to be written in the video's caption.")
             }
 
             if let error = viewModel.scraperError {
@@ -63,7 +78,7 @@ struct ImportRecipeURLView: View {
             Section {
                 Button {
                     Task {
-                        await viewModel.scrapeRecipe(from: url)
+                        await viewModel.scrapeRecipe(from: trimmedURL)
                     }
                 } label: {
                     HStack {
@@ -72,9 +87,23 @@ struct ImportRecipeURLView: View {
                         Spacer()
                     }
                 }
-                .disabled(url.isEmpty || !url.contains("http"))
+                .disabled(!isValidURL)
             }
         }
+    }
+
+    private var trimmedURL: String {
+        url.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var isValidURL: Bool {
+        guard let components = URLComponents(string: trimmedURL),
+              let scheme = components.scheme?.lowercased(),
+              ["http", "https"].contains(scheme),
+              let host = components.host, !host.isEmpty else {
+            return false
+        }
+        return true
     }
 
     private var scrapingView: some View {
@@ -120,7 +149,7 @@ struct ImportRecipeURLView: View {
             }
 
             Section("Ingredients (\(scraped.ingredients.count))") {
-                ForEach(scraped.ingredients.enumerated(), id: \.offset) { index, ingredient in
+                ForEach(Array(scraped.ingredients.enumerated()), id: \.offset) { _, ingredient in
                     Text(formatIngredient(ingredient))
                         .font(.subheadline)
                 }
@@ -202,10 +231,7 @@ struct ImportRecipeURLView: View {
         var parts: [String] = []
 
         if let quantity = ingredient.quantity {
-            let formatted = quantity.truncatingRemainder(dividingBy: 1) == 0
-                ? String(format: "%.0f", quantity)
-                : String(format: "%.1f", quantity)
-            parts.append(formatted)
+            parts.append(Self.formatQuantity(quantity))
         }
 
         if let unit = ingredient.unit, !unit.isEmpty {
@@ -214,7 +240,34 @@ struct ImportRecipeURLView: View {
 
         parts.append(ingredient.name)
 
-        return parts.joined(separator: " ")
+        var result = parts.joined(separator: " ")
+
+        if let notes = ingredient.notes, !notes.isEmpty {
+            result += ", \(notes)"
+        }
+
+        return result
+    }
+
+    /// Render scraped quantities the way a cook writes them (1¼, ⅓, 0.4)
+    static func formatQuantity(_ quantity: Double) -> String {
+        let whole = Int(quantity)
+        let fraction = quantity - Double(whole)
+
+        let vulgarFractions: [(value: Double, symbol: String)] = [
+            (0.25, "¼"), (0.33, "⅓"), (0.5, "½"), (0.67, "⅔"), (0.75, "¾")
+        ]
+
+        if fraction < 0.01 {
+            return "\(whole)"
+        }
+
+        if let match = vulgarFractions.first(where: { abs($0.value - fraction) < 0.02 }) {
+            return whole > 0 ? "\(whole)\(match.symbol)" : match.symbol
+        }
+
+        // No clean fraction; show the number with up to two decimals
+        return quantity.formatted(.number.precision(.fractionLength(0...2)))
     }
 }
 

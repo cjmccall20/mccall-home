@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { isTikTokUrl, fetchTikTokCaption, extractHashtags } from "./tiktok.ts"
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -57,13 +58,6 @@ serve(async (req) => {
     const FIRECRAWL_API_KEY = Deno.env.get('FIRECRAWL_API_KEY')
     const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY')
 
-    if (!FIRECRAWL_API_KEY) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Firecrawl API key not configured' }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
-      )
-    }
-
     if (!ANTHROPIC_API_KEY) {
       return new Response(
         JSON.stringify({ success: false, error: 'Anthropic API key not configured' }),
@@ -71,38 +65,82 @@ serve(async (req) => {
       )
     }
 
-    // Step 1: Scrape the page with Firecrawl
-    console.log('Scraping URL:', url)
-    const firecrawlResponse = await fetch('https://api.firecrawl.dev/v1/scrape', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${FIRECRAWL_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        url: url,
-        formats: ['markdown'],
-      }),
-    })
+    let recipe: ScrapedRecipe | null
 
-    const firecrawlData: FirecrawlResponse = await firecrawlResponse.json()
+    if (isTikTokUrl(url)) {
+      // TikTok: the recipe lives in the video caption, not the page body
+      console.log('Fetching TikTok caption:', url)
+      const { caption, canonicalUrl } = await fetchTikTokCaption(url)
 
-    if (!firecrawlData.success || !firecrawlData.data?.markdown) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Failed to scrape URL' }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
-      )
-    }
+      if (!caption) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: "We couldn't read this TikTok's caption. Double-check the link, or try again in a minute.",
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
+        )
+      }
 
-    // Step 2: Send to Claude for parsing
-    console.log('Parsing with Claude...')
-    const recipe = await parseWithClaude(firecrawlData.data.markdown, url, ANTHROPIC_API_KEY)
+      console.log('Parsing caption with Claude...')
+      recipe = await parseWithClaude(caption, canonicalUrl, ANTHROPIC_API_KEY, 'caption')
 
-    if (!recipe) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Could not parse recipe from page' }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
-      )
+      if (!recipe) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: "We couldn't find a written recipe in this TikTok's caption. If the recipe is only spoken in the video, try a link where it's written out in the caption.",
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
+        )
+      }
+
+      // Hashtags usually name the dish; merge them into tags
+      const hashtags = extractHashtags(caption)
+      if (hashtags.length > 0) {
+        recipe.tags = [...new Set([...recipe.tags, ...hashtags])].slice(0, 10)
+      }
+    } else {
+      if (!FIRECRAWL_API_KEY) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Firecrawl API key not configured' }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
+        )
+      }
+
+      // Step 1: Scrape the page with Firecrawl
+      console.log('Scraping URL:', url)
+      const firecrawlResponse = await fetch('https://api.firecrawl.dev/v1/scrape', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${FIRECRAWL_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          url: url,
+          formats: ['markdown'],
+        }),
+      })
+
+      const firecrawlData: FirecrawlResponse = await firecrawlResponse.json()
+
+      if (!firecrawlData.success || !firecrawlData.data?.markdown) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Failed to scrape URL' }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
+        )
+      }
+
+      // Step 2: Send to Claude for parsing
+      console.log('Parsing with Claude...')
+      recipe = await parseWithClaude(firecrawlData.data.markdown, url, ANTHROPIC_API_KEY, 'page')
+
+      if (!recipe) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Could not parse recipe from page' }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
+        )
+      }
     }
 
     return new Response(
@@ -119,18 +157,32 @@ serve(async (req) => {
   }
 })
 
-async function parseWithClaude(markdown: string, sourceUrl: string, apiKey: string): Promise<ScrapedRecipe | null> {
-  // Truncate markdown if too long (keep first ~15k chars to stay within context)
-  const truncatedMarkdown = markdown.length > 15000
-    ? markdown.substring(0, 15000) + '\n\n[Content truncated...]'
-    : markdown
+async function parseWithClaude(
+  content: string,
+  sourceUrl: string,
+  apiKey: string,
+  mode: 'page' | 'caption' = 'page',
+): Promise<ScrapedRecipe | null> {
+  // Truncate if too long (keep first ~15k chars to stay within context)
+  const truncatedMarkdown = content.length > 15000
+    ? content.substring(0, 15000) + '\n\n[Content truncated...]'
+    : content
+
+  const sourceGuidance = mode === 'caption'
+    ? `CRITICAL: The input is a short social-media video caption (e.g. TikTok). Keep in mind:
+1. Ingredients may be listed inline without a formal recipe card, often one per line or separated by commas
+2. Quantities may be informal ("a splash of", "a handful") - set quantity to null and capture the phrasing in notes
+3. Hashtags (#dinner #easyrecipe) are NOT ingredients or steps - ignore them for ingredients/steps, though they may hint at the dish name or protein
+4. Emoji are decoration - ignore them
+5. If the caption clearly contains NO ingredient list or cooking instructions (e.g. it only says "recipe below" or just names the dish), return {"error":"No recipe found"}`
+    : `CRITICAL: Extract ALL ingredients from the recipe. Look carefully for:
+1. Recipe card sections (often marked with "Recipe", "Ingredients", or structured data)
+2. Ingredient lists with quantities and measurements
+3. Nested or grouped ingredients (e.g., "For the sauce:", "For the crust:")`
 
   const systemPrompt = `You are a recipe data extractor. Your ONLY job is to output valid JSON. Do not include any explanation, greeting, or markdown formatting - ONLY output the raw JSON object.
 
-CRITICAL: Extract ALL ingredients from the recipe. Look carefully for:
-1. Recipe card sections (often marked with "Recipe", "Ingredients", or structured data)
-2. Ingredient lists with quantities and measurements
-3. Nested or grouped ingredients (e.g., "For the sauce:", "For the crust:")
+${sourceGuidance}
 
 Output format (copy this structure exactly):
 {"title":"Recipe Title","ingredients":[{"name":"ingredient","quantity":2,"unit":"cups","notes":null}],"steps":[{"step_number":1,"instruction":"Step text"}],"prep_time":15,"cook_time":30,"base_servings":4,"dish_category":"entree","protein_type":"chicken","tags":["tag1"]}
