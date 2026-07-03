@@ -1,5 +1,5 @@
-# Secrets
-McCallHome/McCallHome/Secrets.swift
+# Secrets (path is relative to this .gitignore's directory)
+McCallHome/Secrets.swift
 
 # Xcode
 *.xcuserstate
